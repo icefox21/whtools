@@ -1,0 +1,63 @@
+{
+  "jdsc:version_seen": "2025-11-23-01",
+  "jdsc:workflow_history": [
+    {
+      "name": "王炸！DreamID-V视频换脸V2",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\王炸！DreamID-V视频换脸V2.json",
+      "time": 1767856805474,
+      "method": "jdsc"
+    },
+    {
+      "name": "千问kk",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\千问kk.json",
+      "time": 1767855976941,
+      "method": "jdsc"
+    },
+    {
+      "name": "zimage",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\zimage.json",
+      "time": 1767855732045,
+      "method": "jdsc"
+    },
+    {
+      "name": "【添柴Ai】gemini批量图片反推打标-NSFW反推工作流😼",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\【添柴Ai】gemini批量图片反推打标-NSFW反推工作流😼.json",
+      "time": 1767757122231,
+      "method": "jdsc"
+    }
+  ],
+  "empty_latent_qwen": {
+    "size_mode": "3:4",
+    "orientation": "竖屏",
+    "width": 1536,
+    "height": 2048,
+    "batch_size": 1
+  },
+  "jdsc:uiAnchor": {
+    "x": 2342,
+    "y": 218
+  },
+  "jdsc:workflowModalPos": {
+    "x": 1908,
+    "y": 286
+  },
+  "jdsc:modalPos": {
+    "x": 1862,
+    "y": 300
+  },
+  "jdsc:fav_order_nodes": [
+    "WuhuoIgnoreGroup",
+    "WuhuoTextGate",
+    "Power Lora Loader (rgthree)",
+    "WuhuoEmptyLatentVideo",
+    "ImageAndMaskPreview",
+    "WuhuoMultiPreview",
+    "MaskPreview",
+    "AILab_Preview",
+    "Note",
+    "WuhuoEmptyLatentQwen",
+    "YoloFaceReformer",
+    "SaveITToPath",
+    "PreviewAny"
+  ]
+}

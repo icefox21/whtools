@@ -1,0 +1,6 @@
+__pycache__/
+*.log
+*.pyc
+backup_*/
+.DS_Store
+.vscode/

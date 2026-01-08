@@ -1,0 +1,11 @@
+[
+  {
+    "id": "default",
+    "name": "默认工作流",
+    "path": "user/default/workflows",
+    "enabled": true,
+    "order": 0,
+    "is_default": true,
+    "collapsed": true
+  }
+]
