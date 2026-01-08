@@ -39,13 +39,13 @@ function _jdscRecursiveAddNodes(nodeId, oldOutput, newOutput) {
 function _jdscInitQueueHook() {
     if (_jdscQueueHooked) return;
     if (window.rgthree) {
-        console.log("[jdsc] 检测到 rgthree，使用其 queueOutputNodes");
+        console.log("[whtools] 检测到 rgthree，使用其 queueOutputNodes");
         _jdscQueueHooked = true;
         return;
     }
 
     _jdscQueueHooked = true;
-    console.log("[jdsc] 初始化自定义 Queue Hook");
+    console.log("[whtools] 初始化自定义 Queue Hook");
 
     const originalApiQueuePrompt = api.queuePrompt.bind(api);
     api.queuePrompt = async function (index, prompt) {
@@ -69,7 +69,7 @@ async function _jdscQueueOutputNodes(nodeIds) {
             await window.rgthree.queueOutputNodes(nodeIds);
             return true;
         } catch (e) {
-            console.error("[jdsc] rgthree.queueOutputNodes 失败:", e);
+            console.error("[whtools] rgthree.queueOutputNodes 失败:", e);
         }
     }
 
@@ -79,7 +79,7 @@ async function _jdscQueueOutputNodes(nodeIds) {
         await app.queuePrompt(0);
         return true;
     } catch (e) {
-        console.error("[jdsc] Queue 失败:", e);
+        console.error("[whtools] Queue 失败:", e);
         return false;
     } finally {
         _jdscQueueNodeIds = null;
@@ -703,7 +703,7 @@ app.registerExtension({
 
         // 触发 Queue 当前节点
         nodeType.prototype.triggerQueueThisNode = async function () {
-            console.log("[jdsc] 双击触发 Queue，节点 ID:", this.id);
+            console.log("[whtools] 双击触发 Queue，节点 ID:", this.id);
             const success = await _jdscQueueOutputNodes([this.id]);
             if (success) {
                 // 可选：显示一个简短的视觉反馈

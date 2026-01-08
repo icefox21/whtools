@@ -86,7 +86,7 @@
       try {
         // 如果设置还没加载完成，不允许保存（防止覆盖丢失数据）
         if (!SETTINGS_LOADED) {
-          console.warn('[jdsc] 设置尚未加载完成，跳过保存:', key);
+          console.warn('[whtools] 设置尚未加载完成，跳过保存:', key);
           return;
         }
         window.__jdsc_settings_cache = window.__jdsc_settings_cache || {};
@@ -117,7 +117,7 @@
       wrap.className = 'jdsc-version-banner';
       wrap.style.position = 'fixed'; wrap.style.right = '80px'; wrap.style.bottom = '120px'; wrap.style.zIndex = '10000';
       wrap.style.background = '#faad14'; wrap.style.color = '#000'; wrap.style.padding = '12px 14px'; wrap.style.borderRadius = '8px'; wrap.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)'; wrap.style.fontSize = '13px';
-      const msg = document.createElement('div'); msg.textContent = (getLang() === 'en' ? 'Detected new jdsc front-end version. If changes are not visible, try force refresh.' : '检测到 jdsc 前端版本已更新。如果仍看不到变化，可尝试强制刷新');
+      const msg = document.createElement('div'); msg.textContent = (getLang() === 'en' ? 'Detected new whtools front-end version. If changes are not visible, try force refresh.' : '检测到 whtools 前端版本已更新。如果仍看不到变化，可尝试强制刷新');
       const btns = document.createElement('div'); btns.style.marginTop = '8px'; btns.style.display = 'flex'; btns.style.gap = '8px';
       const btnRefresh = document.createElement('button'); btnRefresh.textContent = (getLang() === 'en' ? 'Force refresh' : '强制刷新'); btnRefresh.style.cursor = 'pointer'; btnRefresh.style.padding = '6px 10px'; btnRefresh.style.border = 'none'; btnRefresh.style.borderRadius = '6px'; btnRefresh.style.background = '#52c41a'; btnRefresh.style.color = '#fff';
       const btnKnow = document.createElement('button'); btnKnow.textContent = (getLang() === 'en' ? 'Got it' : '知道了'); btnKnow.style.cursor = 'pointer'; btnKnow.style.padding = '6px 10px'; btnKnow.style.border = 'none'; btnKnow.style.borderRadius = '6px'; btnKnow.style.background = '#1677ff'; btnKnow.style.color = '#fff';

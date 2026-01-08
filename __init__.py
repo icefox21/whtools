@@ -66,7 +66,7 @@ def _load_enhance_presets():
                     presets = {"无": "", **presets}
                 return presets
         except Exception as e:
-            print(f"[jdsc] Error loading enhance_presets.txt: {e}")
+            print(f"[whtools] Error loading enhance_presets.txt: {e}")
 
     # 降级加载 JSON 格式
     try:
@@ -76,7 +76,7 @@ def _load_enhance_presets():
                 if isinstance(data, dict) and len(data) > 0:
                     return data
     except Exception as e:
-        print(f"[jdsc] Error loading enhance presets: {e}")
+        print(f"[whtools] Error loading enhance presets: {e}")
     return {"无": ""}
 try:
     import sys
@@ -87,7 +87,7 @@ try:
             m = sys.modules['utils']
             if hasattr(m, '__file__') and m.__file__ and 'comfy' in m.__file__.replace('\\', '/').lower():
                 if 'utils.py' in m.__file__.lower() or m.__file__.lower().endswith('utils'):
-                    print(f"[jdsc] 检测到错误的 utils 模块 ({m.__file__})，正在修复...")
+                    print(f"[whtools] 检测到错误的 utils 模块 ({m.__file__})，正在修复...")
                     del sys.modules['utils']
         except Exception:
             pass
@@ -106,7 +106,7 @@ try:
     for p in paths_to_remove:
         try:
             sys.path.remove(p)
-            print(f"[jdsc] 已从 sys.path 移除错误路径: {p}")
+            print(f"[whtools] 已从 sys.path 移除错误路径: {p}")
         except Exception:
             pass
 
@@ -1058,6 +1058,6 @@ try:
     # 注册 API 路由（供前端调用）
     multi_preview.register_routes()
 except Exception as e:
-    print(f"[jdsc] 多图预览模块加载失败: {e}")
+    print(f"[whtools] 多图预览模块加载失败: {e}")
 
 
