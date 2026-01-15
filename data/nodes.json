@@ -115,5 +115,32 @@
     "manual": true,
     "captured_text": "",
     "last_in_text": ""
+  },
+  "62": {
+    "type": "WuhuoTextGate",
+    "enable_edit": false,
+    "free_pass": false,
+    "received": false,
+    "manual": true,
+    "captured_text": "",
+    "last_in_text": ""
+  },
+  "33": {
+    "type": "WuhuoTextGate",
+    "enable_edit": false,
+    "free_pass": false,
+    "received": false,
+    "manual": true,
+    "captured_text": "",
+    "last_in_text": ""
+  },
+  "70": {
+    "type": "WuhuoTextGate",
+    "enable_edit": false,
+    "free_pass": false,
+    "received": false,
+    "manual": true,
+    "captured_text": "",
+    "last_in_text": ""
   }
 }

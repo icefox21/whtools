@@ -245,14 +245,18 @@ app.registerExtension({
                     this.setDirtyCanvas(true, true); // 重绘
                 };
                 img.onerror = () => {
-                    // 图片加载失败（可能已被删除），从列表中移除并重试
+                    // 图片加载失败（可能已被删除），从列表中移除
                     console.warn(`[多图预览] 图片加载失败: ${file}`);
                     const idx = this._history.indexOf(file);
                     if (idx > -1) {
                         this._history.splice(idx, 1);
-                        // 重新加载当前页
-                        this.loadCurrentPageImages();
                     }
+                    // 从当前加载列表中也移除
+                    const loadedIdx = this._loadedImages.findIndex(item => item.file === file);
+                    if (loadedIdx > -1) {
+                        this._loadedImages.splice(loadedIdx, 1);
+                    }
+                    this.setDirtyCanvas(true, true);
                 };
                 this._loadedImages.push({ file, img });
             }
@@ -354,7 +358,8 @@ app.registerExtension({
             // 预览模式：显示单张图片
             if (this._previewIndex >= 0 && this._previewIndex < this._loadedImages.length) {
                 const item = this._loadedImages[this._previewIndex];
-                if (item.img.complete) {
+                // 检查图片是否成功加载（complete=true 且 naturalWidth>0 表示成功）
+                if (item.img.complete && item.img.naturalWidth > 0) {
                     // 1. 绘制提示文字（无背景，极小字体）
                     const tipHeight = 12; // 预留空间
 
@@ -439,7 +444,8 @@ app.registerExtension({
                 const startX = padding / 2; // 居中对齐
 
                 this._loadedImages.forEach((item, index) => {
-                    if (!item.img.complete) return;
+                    // 检查图片是否成功加载（complete=true 且 naturalWidth>0 表示成功）
+                    if (!item.img.complete || item.img.naturalWidth === 0) return;
                     if (index >= cols * rows) return; // 超出当前页不绘制
 
                     const col = index % cols;

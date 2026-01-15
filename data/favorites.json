@@ -50,5 +50,9 @@
   "PreviewAny": {
     "name": "预览任意",
     "orig": "预览任意"
+  },
+  "ReservedVRAMSetter": {
+    "name": "Set Reserved VRAM(GB) ⚙️",
+    "orig": "Set Reserved VRAM(GB) ⚙️"
   }
 }

@@ -82,5 +82,19 @@
     "original_path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\增加光影‑2511单图编辑（防偏移）.json",
     "starred": false,
     "added_time": 1767061858211
+  },
+  "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\分步zimage.json": {
+    "custom_name": "分步zimage",
+    "original_name": "分步zimage",
+    "original_path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\分步zimage.json",
+    "starred": false,
+    "added_time": 1768192868227
+  },
+  "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\XL局部重绘.json": {
+    "custom_name": "XL局部重绘",
+    "original_name": "XL局部重绘",
+    "original_path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\XL局部重绘.json",
+    "starred": false,
+    "added_time": 1768389501247
   }
 }

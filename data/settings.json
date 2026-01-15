@@ -2,21 +2,93 @@
   "jdsc:version_seen": "2025-11-23-01",
   "jdsc:workflow_history": [
     {
-      "name": "王炸！DreamID-V视频换脸V2",
-      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\王炸！DreamID-V视频换脸V2.json",
-      "time": 1767856805474,
+      "name": "分步zimage",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\分步zimage.json",
+      "time": 1768443886960,
       "method": "jdsc"
     },
     {
-      "name": "千问kk",
-      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\千问kk.json",
-      "time": 1767855976941,
+      "name": "XL局部重绘",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\XL局部重绘.json",
+      "time": 1768402772554,
+      "method": "jdsc"
+    },
+    {
+      "name": "2511融合改动controlnet强化",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\2511融合改动controlnet强化.json",
+      "time": 1768400877587,
+      "method": "jdsc"
+    },
+    {
+      "name": "image_z_image_turbo",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\image_z_image_turbo.json",
+      "time": 1768390605355,
       "method": "jdsc"
     },
     {
       "name": "zimage",
       "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\zimage.json",
-      "time": 1767855732045,
+      "time": 1768390593694,
+      "method": "jdsc"
+    },
+    {
+      "name": "分步zimage添噪皮",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\分步zimage添噪皮.json",
+      "time": 1768366343883,
+      "method": "jdsc"
+    },
+    {
+      "name": "增加光影‑2511单图编辑（防偏移）",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\增加光影‑2511单图编辑（防偏移）.json",
+      "time": 1768291308472,
+      "method": "jdsc"
+    },
+    {
+      "name": "nunchaku-z-image-turbo",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\nunchaku-z-image-turbo.json",
+      "time": 1768130229175,
+      "method": "jdsc"
+    },
+    {
+      "name": "qwentest",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\qwentest.json",
+      "time": 1768125283984,
+      "method": "jdsc"
+    },
+    {
+      "name": "Nunchaku千问kk",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\Nunchaku千问kk.json",
+      "time": 1768124934792,
+      "method": "jdsc"
+    },
+    {
+      "name": "qwen2511零位移图像局部编辑",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\qwen2511零位移图像局部编辑.json",
+      "time": 1768101448658,
+      "method": "jdsc"
+    },
+    {
+      "name": "千问kk",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\千问kk.json",
+      "time": 1768100889217,
+      "method": "jdsc"
+    },
+    {
+      "name": "蓝色zimage controlnet",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\蓝色zimage controlnet.json",
+      "time": 1768096304374,
+      "method": "jdsc"
+    },
+    {
+      "name": "Z-IMAGE+Controlnet",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\Z-IMAGE+Controlnet.json",
+      "time": 1768008342207,
+      "method": "jdsc"
+    },
+    {
+      "name": "王炸！DreamID-V视频换脸V2",
+      "path": "O:\\ComfyI2I\\ComfyUI\\user/default/workflows\\王炸！DreamID-V视频换脸V2.json",
+      "time": 1767860276781,
       "method": "jdsc"
     },
     {
@@ -27,23 +99,23 @@
     }
   ],
   "empty_latent_qwen": {
-    "size_mode": "3:4",
+    "size_mode": "9:16",
     "orientation": "竖屏",
-    "width": 1536,
-    "height": 2048,
+    "width": 864,
+    "height": 1536,
     "batch_size": 1
   },
   "jdsc:uiAnchor": {
-    "x": 2342,
-    "y": 218
+    "x": 3674,
+    "y": 2756
   },
   "jdsc:workflowModalPos": {
-    "x": 1908,
-    "y": 286
+    "x": 1915,
+    "y": 306
   },
   "jdsc:modalPos": {
-    "x": 1862,
-    "y": 300
+    "x": 727,
+    "y": 226
   },
   "jdsc:fav_order_nodes": [
     "WuhuoIgnoreGroup",
@@ -59,5 +131,15 @@
     "YoloFaceReformer",
     "SaveITToPath",
     "PreviewAny"
-  ]
+  ],
+  "jdsc:strictFavPos": {
+    "ReservedVRAMSetter": {
+      "x": 710,
+      "y": -250
+    }
+  },
+  "jdsc:floatPos": {
+    "x": null,
+    "y": null
+  }
 }

@@ -830,12 +830,26 @@
     try { updateGlobalModalAnchor(); } catch { }
 
     const mp = load(KEY_MODAL_POS, null);
+    let positionValid = false;
     if (mp && typeof mp.x === "number" && typeof mp.y === "number") {
-      modal.style.left = mp.x + "px";
-      modal.style.top = mp.y + "px";
-    } else {
+      // 检查位置是否在屏幕可见范围内
+      const screenW = window.innerWidth || document.documentElement.clientWidth || 1920;
+      const screenH = window.innerHeight || document.documentElement.clientHeight || 1080;
+      const modalW = 460; // 面板默认宽度
+      const modalH = 400; // 面板大致高度
+      // 确保至少有100px在屏幕内可见
+      if (mp.x >= -modalW + 100 && mp.x <= screenW - 100 && mp.y >= 0 && mp.y <= screenH - 100) {
+        modal.style.left = mp.x + "px";
+        modal.style.top = mp.y + "px";
+        positionValid = true;
+      }
+    }
+    if (!positionValid) {
+      // 位置无效时使用默认位置
       modal.style.right = "70px";
       modal.style.bottom = "70px";
+      modal.style.left = "auto";
+      modal.style.top = "auto";
     }
 
     let mDown = false, sx = 0, sy = 0, ex = 0, ey = 0;
