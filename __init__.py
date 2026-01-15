@@ -113,6 +113,7 @@ try:
     from server import PromptServer
     from aiohttp import web
     import json
+    from .switch_any import WuhuoSwitchAny, WuhuoSelectorAny
 
 except Exception as e:
     import traceback
@@ -774,6 +775,12 @@ NODE_CLASS_MAPPINGS.update({"WuhuoEmptyLatentVideo": WuhuoEmptyLatentVideo})
 NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoEmptyLatentVideo": "空latent+"})
 NODE_CLASS_MAPPINGS.update({"WuhuoEmptyLatentQwen": WuhuoEmptyLatentQwen})
 NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoEmptyLatentQwen": "空latent+Qwen"})
+
+NODE_CLASS_MAPPINGS.update({"WuhuoSwitchAny": WuhuoSwitchAny})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoSwitchAny": "任意切换 (布尔)"})
+
+NODE_CLASS_MAPPINGS.update({"WuhuoSelectorAny": WuhuoSelectorAny})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoSelectorAny": "任意选择 (多路)"})
 
 # ============================================================
 # 工作流管理功能（新增，不影响现有节点）
