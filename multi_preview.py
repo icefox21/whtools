@@ -141,7 +141,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "WuhuoMultiPreview": "多图预览"
+    "WuhuoMultiPreview": "🖼️预览+"
 }
 
 

@@ -11,6 +11,51 @@ import { app } from "/scripts/app.js";
 import { api } from "/scripts/api.js";
 
 // ==========================================================================
+// 注册节点到 slot search 弹窗（拉线时的搜索菜单）
+// ==========================================================================
+function registerToSlotDefaults() {
+    if (!window.LiteGraph) return;
+
+    // 使用节点的内部名称（NODE_CLASS_MAPPINGS 的 key），而不是显示名称
+    const nodeType = "WuhuoMultiPreview";
+
+    // slot_types_default_in: 当从 OUTPUT 拉线时显示的 INPUT 节点
+    if (!LiteGraph.slot_types_default_in) {
+        LiteGraph.slot_types_default_in = {};
+    }
+    if (!LiteGraph.slot_types_default_in["IMAGE"]) {
+        LiteGraph.slot_types_default_in["IMAGE"] = [];
+    }
+    // 将节点添加到列表开头，确保显示优先级
+    const arr = LiteGraph.slot_types_default_in["IMAGE"];
+    const idx = arr.indexOf(nodeType);
+    if (idx !== -1) {
+        arr.splice(idx, 1);
+    }
+    arr.unshift(nodeType);
+
+    // 同时注册到 slot_types_default_out（当拉线到 INPUT 时）
+    if (!LiteGraph.slot_types_default_out) {
+        LiteGraph.slot_types_default_out = {};
+    }
+    if (!LiteGraph.slot_types_default_out["IMAGE"]) {
+        LiteGraph.slot_types_default_out["IMAGE"] = [];
+    }
+    const arrOut = LiteGraph.slot_types_default_out["IMAGE"];
+    const idxOut = arrOut.indexOf(nodeType);
+    if (idxOut !== -1) {
+        arrOut.splice(idxOut, 1);
+    }
+    arrOut.unshift(nodeType);
+}
+
+// 在多个时机尝试注册，确保覆盖所有情况
+registerToSlotDefaults();
+setTimeout(registerToSlotDefaults, 100);
+setTimeout(registerToSlotDefaults, 500);
+setTimeout(registerToSlotDefaults, 1000);
+
+// ==========================================================================
 // Queue Selected Output Nodes 功能支持
 // 优先使用 rgthree 插件，如果没有则使用自己的实现
 // ==========================================================================
@@ -91,9 +136,69 @@ async function _jdscQueueOutputNodes(nodeIds) {
 app.registerExtension({
     name: "jdsc.multi_preview",
 
-    // 初始化 Queue Hook
+    // 初始化 Queue Hook 和全局快捷键
     async setup() {
         _jdscInitQueueHook();
+        registerToSlotDefaults(); // 注册到拉线弹窗
+
+        // 添加快捷键监听：X 加载历史图片/放大图片，Z 执行节点
+        window.addEventListener("keydown", (e) => {
+            // 忽略输入框中的按键
+            if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) {
+                return;
+            }
+
+            const key = e.key.toLowerCase();
+            if (key !== "x" && key !== "z") return;
+
+            // 获取鼠标位置
+            const canvas = app.canvas;
+            const mouse = canvas.graph_mouse;
+            if (!mouse) return;
+
+            // 查找鼠标下的多图预览节点
+            const graph = app.graph;
+            if (!graph || !graph._nodes) return;
+
+            for (const node of graph._nodes) {
+                if (node.type !== "WuhuoMultiPreview") continue;
+
+                // 检查鼠标是否在节点上
+                const isMouseOver = mouse[0] >= node.pos[0] &&
+                    mouse[0] <= node.pos[0] + node.size[0] &&
+                    mouse[1] >= node.pos[1] &&
+                    mouse[1] <= node.pos[1] + node.size[1];
+
+                if (isMouseOver) {
+                    if (key === "x") {
+                        // X 键：无图时加载历史，多图模式时放大鼠标悬停的图片
+                        const hasNoImages = !node._loadedImages || node._loadedImages.length === 0;
+                        const isInPreview = node._previewIndex >= 0;  // -1 表示网格模式，>=0 表示预览模式
+
+                        if (hasNoImages) {
+                            // 没有图片时：加载历史图片
+                            console.log("[whtools] X键触发加载历史图片，节点ID:", node.id);
+                            node.refreshHistory();
+                        } else if (!isInPreview) {
+                            // 有图片且在多图模式：计算鼠标悬停的图片并放大
+                            const localX = mouse[0] - node.pos[0];
+                            const localY = mouse[1] - node.pos[1];
+                            console.log("[whtools] X键触发放大图片，节点ID:", node.id);
+                            node.handleSingleClick(localX, localY, null);
+                        }
+                        e.preventDefault();
+                        e.stopPropagation();
+                    } else if (key === "z") {
+                        // Z 键：执行此节点
+                        console.log("[whtools] Z键触发执行节点，节点ID:", node.id);
+                        node.triggerQueueThisNode();
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                    break; // 只处理第一个匹配的节点
+                }
+            }
+        });
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
@@ -120,6 +225,12 @@ app.registerExtension({
             this._lastClickPos = null;       // 双击检测：上次点击位置
             this._previewIndex = -1;         // 当前预览的图片索引（-1表示网格模式）
             this._escListener = null;        // ESC键监听器引用
+
+            // 对比模式相关
+            this._compareMode = false;       // 是否在对比模式
+            this._compareIndex = -1;         // 对比的另一张图片索引（通常是上一张）
+            this._pointerX = 0;              // 鼠标X坐标（分割线位置）
+            this._longPressTimeout = null;   // 长按定时器
 
             // 按钮区域定义 (x, y, w, h, name) - 动态计算
             this._buttons = [];
@@ -367,18 +478,60 @@ app.registerExtension({
                     ctx.font = "8px Arial"; // 字体缩小
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText("按 ESC 返回列表", W / 2, layout.headerH + tipHeight / 2);
+
+                    // 根据模式显示不同提示
+                    const tipText = this._compareMode
+                        ? "对比模式 | 按 ESC 退出"
+                        : "按 ESC 返回 | 按 C 对比";
+                    ctx.fillText(tipText, W / 2, layout.headerH + tipHeight / 2);
 
                     // 2. 在横条下方绘制图片（减去横条高度）
                     const imgY = layout.headerH + tipHeight;
                     const imgH = layout.gridH - tipHeight;
 
-                    // 全屏显示图片（contain模式）
-                    drawImageContain(ctx, item.img, 0, imgY, W, imgH);
+                    // 对比模式：新图（索引小）在左，旧图（索引大）在右
+                    if (this._compareMode && this._compareIndex >= 0 && this._compareIndex < this._loadedImages.length) {
+                        const compareItem = this._loadedImages[this._compareIndex];
+                        if (compareItem.img.complete && compareItem.img.naturalWidth > 0) {
+                            // 计算分割线位置（限制在图片区域内）
+                            const splitX = Math.max(0, Math.min(W, this._pointerX));
+
+                            // 确定谁是新图（索引小 = 更新）
+                            // _previewIndex 是当前预览的图，_compareIndex 是对比的图
+                            const currentIsNewer = this._previewIndex < this._compareIndex;
+                            const leftImg = currentIsNewer ? item.img : compareItem.img;
+                            const rightImg = currentIsNewer ? compareItem.img : item.img;
+
+                            // 先绘制右边（旧图，完整显示）
+                            drawImageContain(ctx, rightImg, 0, imgY, W, imgH);
+
+                            // 再用 clip 绘制左边（新图，只显示分割线左侧）
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.rect(0, imgY, splitX, imgH);
+                            ctx.clip();
+                            drawImageContain(ctx, leftImg, 0, imgY, W, imgH);
+                            ctx.restore();
+
+                            // 绘制分割线
+                            if (splitX > 0 && splitX < W) {
+                                ctx.beginPath();
+                                ctx.moveTo(splitX, imgY);
+                                ctx.lineTo(splitX, imgY + imgH);
+                                ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+                                ctx.lineWidth = 0.1;
+                                ctx.stroke();
+                            }
+                        }
+                    } else {
+                        // 普通预览模式：全屏显示图片（contain模式）
+                        drawImageContain(ctx, item.img, 0, imgY, W, imgH);
+                    }
                 }
                 ctx.restore();
                 return; // 预览模式下不绘制其他内容
             }
+
 
             // 网格模式：显示多张图片
 
@@ -591,6 +744,12 @@ app.registerExtension({
                 return false;
             }
 
+            // 2.6 对比模式下禁止点击（不切换图片）
+            if (this._compareMode) {
+                return true; // 阻止事件
+            }
+
+
             // 3. 双击检测逻辑
             const now = Date.now();
             const timeSinceLastClick = now - this._lastClickTime;
@@ -693,17 +852,51 @@ app.registerExtension({
                     this._previewIndex = index;
                     this.setDirtyCanvas(true, true);
 
-                    // 注册ESC键监听器
+                    // 注册键盘监听器（ESC 和 C）
                     const node = this;
                     this._escListener = function (e) {
-                        if (e.key === "Escape") {
-                            node.exitPreview();
+                        // 检查鼠标是否在当前节点上
+                        const canvas = app.canvas;
+                        const mouse = canvas.graph_mouse;
+                        let isMouseOver = true;
+                        if (mouse) {
+                            isMouseOver = mouse[0] >= node.pos[0] &&
+                                mouse[0] <= node.pos[0] + node.size[0] &&
+                                mouse[1] >= node.pos[1] &&
+                                mouse[1] <= node.pos[1] + node.size[1];
+                        }
+
+                        if (e.key === "Escape" && isMouseOver) {
+                            if (node._compareMode) {
+                                // 先退出对比模式
+                                node.exitCompareMode();
+                            } else {
+                                // 再退出预览模式
+                                node.exitPreview();
+                            }
                             e.preventDefault();
                             e.stopPropagation();
+                        } else if ((e.key === "c" || e.key === "C") && isMouseOver) {
+                            // C 键切换对比模式
+                            console.log("[whtools] C key pressed on node:", node.id, "compareMode:", node._compareMode, "previewIndex:", node._previewIndex);
+                            if (node._compareMode) {
+                                // 已在对比模式，退出
+                                node.exitCompareMode();
+                            } else if (node._loadedImages.length >= 2) {
+                                // 进入对比模式
+                                // 如果是第一张（索引0），和下一张对比；否则和上一张对比
+                                if (node._previewIndex === 0) {
+                                    node.enterCompareMode(1); // 和第二张对比
+                                } else {
+                                    node.enterCompareMode(node._previewIndex - 1); // 和上一张对比
+                                }
+                            }
+                            e.preventDefault();
                         }
                     };
                     window.addEventListener("keydown", this._escListener);
                 }
+
             }
         };
 
@@ -738,13 +931,53 @@ app.registerExtension({
 
         // 退出预览模式
         nodeType.prototype.exitPreview = function () {
+            // 如果在对比模式，先退出
+            if (this._compareMode) {
+                this.exitCompareMode();
+            }
             this._previewIndex = -1;
             if (this._escListener) {
                 window.removeEventListener("keydown", this._escListener);
                 this._escListener = null;
             }
+            // 清除长按定时器（已废弃，保留防止错误）
             this.setDirtyCanvas(true, true);
         };
+
+        // 进入对比模式
+        nodeType.prototype.enterCompareMode = function (compareIndex) {
+            if (compareIndex < 0 || compareIndex >= this._loadedImages.length) return;
+            if (compareIndex === this._previewIndex) return; // 不和自己对比
+
+            this._compareMode = true;
+            this._compareIndex = compareIndex;
+            this._pointerX = this.size[0] / 2; // 初始分割线在中间
+            this.setDirtyCanvas(true, true);
+        };
+
+        // 退出对比模式
+        nodeType.prototype.exitCompareMode = function () {
+            this._compareMode = false;
+            this._compareIndex = -1;
+            this.setDirtyCanvas(true, true);
+        };
+
+        // 鼠标移动处理（用于对比模式的分割线）
+        nodeType.prototype.onMouseMove = function (e, localPos) {
+            if (this._compareMode) {
+                this._pointerX = localPos[0];
+                this.setDirtyCanvas(true, false);
+            }
+        };
+
+        // 鼠标释放处理（取消长按定时器）
+        nodeType.prototype.onMouseUp = function (e, localPos) {
+            if (this._longPressTimeout) {
+                clearTimeout(this._longPressTimeout);
+                this._longPressTimeout = null;
+            }
+        };
+
 
         // 右键菜单
         nodeType.prototype.getExtraMenuOptions = function (canvas, options) {
@@ -770,6 +1003,8 @@ app.registerExtension({
                 this.addImageMenuOptions(options, item);
                 return;
             }
+
+
 
             // 网格模式下的右键菜单（仅当点击了具体图片时）
             if (inImageArea && this._loadedImages.length > 0) {

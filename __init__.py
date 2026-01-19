@@ -451,7 +451,7 @@ class WuhuoIgnoreGroup:
         return ()
 
 NODE_CLASS_MAPPINGS.update({"WuhuoTextGate": WuhuoTextGate})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGate": "文本传递"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGate": "📝文本+"})
 NODE_CLASS_MAPPINGS.update({"WuhuoIgnoreGroup": WuhuoIgnoreGroup})
 NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoIgnoreGroup": "忽略选择框"})
 NODE_CLASS_MAPPINGS.pop("WuhuoEcho", None)

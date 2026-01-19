@@ -1404,9 +1404,9 @@
       try {
         const onEdit = !!(wEnable && wEnable.value);
         const onFree = !!(wFree && wFree.value);
-        if (onEdit) { gate.bgcolor = '#8a4f57'; gate.color = '#f0f0f0'; gate.title_text_color = '#f0f0f0'; gate.titlecolor = '#f0f0f0'; gate.title_color = '#f0f0f0'; }
-        else if (onFree) { gate.bgcolor = '#3f7a50'; gate.color = '#f0f0f0'; gate.title_text_color = '#f0f0f0'; gate.titlecolor = '#f0f0f0'; gate.title_color = '#f0f0f0'; }
-        else { gate.bgcolor = '#b08a45'; gate.color = '#101010'; gate.title_text_color = '#101010'; gate.titlecolor = '#101010'; gate.title_color = '#101010'; }
+        if (onEdit) { gate.bgcolor = '#A02F2B'; gate.color = '#f0f0f0'; gate.title_text_color = '#f0f0f0'; gate.titlecolor = '#f0f0f0'; gate.title_color = '#f0f0f0'; }
+        else if (onFree) { gate.bgcolor = '#5E6B4D'; gate.color = '#f0f0f0'; gate.title_text_color = '#f0f0f0'; gate.titlecolor = '#f0f0f0'; gate.title_color = '#f0f0f0'; }
+        else { gate.bgcolor = '#8C7259'; gate.color = '#f0f0f0'; gate.title_text_color = '#f0f0f0'; gate.titlecolor = '#f0f0f0'; gate.title_color = '#f0f0f0'; }
       } catch { }
     }
   }
@@ -1530,9 +1530,9 @@
               if (typeof gate.__jdsc_base_color === 'undefined') gate.__jdsc_base_color = gate.color;
               const okEdit = !!edit;
               const okFree = !!free;
-              if (okEdit) { gate.bgcolor = '#8a4f57'; gate.color = '#f0f0f0'; }
-              else if (okFree) { gate.bgcolor = '#3f7a50'; gate.color = '#f0f0f0'; }
-              else { gate.bgcolor = '#b08a45'; gate.color = '#101010'; }
+              if (okEdit) { gate.bgcolor = '#A02F2B'; gate.color = '#f0f0f0'; }
+              else if (okFree) { gate.bgcolor = '#5E6B4D'; gate.color = '#f0f0f0'; }
+              else { gate.bgcolor = '#8C7259'; gate.color = '#f0f0f0'; }
             } catch { }
 
             // Clear stale manual cache when in yellow and upstream is used
@@ -1853,7 +1853,7 @@
         const hasM = Object.prototype.hasOwnProperty.call(prop, '__jdsc_last_manual');
         const okP = hasP ? !!prop.__jdsc_last_passing : isPassing(this);
         const okM = hasM ? !!prop.__jdsc_last_manual : false;
-        const color = okP ? "#3f7a50" : (okM ? "#b08a45" : "#8a4f57");
+        const color = okP ? "#5E6B4D" : (okM ? "#8C7259" : "#A02F2B");
         try { const wStatus = findWidgetByKeyOrLabel(this, "status"); if (wStatus) wStatus.value = okP ? "🟢" : (okM ? "🟡" : "🔴"); } catch { }
         const ox = Array.isArray(this.pos) ? this.pos[0] : 0;
         const oy = Array.isArray(this.pos) ? this.pos[1] : 0;
