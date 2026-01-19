@@ -4,3 +4,5 @@ __pycache__/
 backup_*/
 .DS_Store
 .vscode/
+data/history_images/
+data/*.json
