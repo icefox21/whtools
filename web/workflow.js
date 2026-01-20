@@ -254,7 +254,91 @@
     const style = createEl("style");
     style.id = "jdsc-workflow-styles";
     style.textContent = `
-      .jdsc-wf-search-container{position:relative;flex:1;display:flex;align-items:center}.jdsc-wf-search-input{flex:1;height:28px;padding:4px 32px 4px 10px !important;box-sizing:border-box;max-width:none;font-size:13px;border:1px solid #2a2e32;background:#14181b;color:#d9d9d9;border-radius:4px}.jdsc-wf-search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:18px;height:18px;border-radius:9px;background:#fa3d64;color:#fff;display:none;align-items:center;justify-content:center;font-size:12px;cursor:pointer;font-weight:bold;line-height:1;padding:0;border:none}.jdsc-wf-search-clear:hover{background:#ff4d4f}.jdsc-wf-search-clear.visible{display:flex}.jdsc-wf-folder{margin:8px 0;padding:0 16px}.jdsc-wf-folder-header{display:flex;align-items:center;padding:8px 12px;background:#2a2e32;border-radius:4px;cursor:pointer;user-select:none}.jdsc-wf-folder-header:hover{background:#333}.jdsc-wf-folder-icon{margin-right:8px;font-size:14px}.jdsc-wf-folder-name{flex:1;font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.jdsc-wf-folder-toggle{font-size:12px;color:#888;margin-right:8px}.jdsc-wf-folder-content{padding:4px 0 4px 24px}.jdsc-wf-subfolder{margin:4px 0}.jdsc-wf-subfolder-header{display:flex;align-items:center;padding:6px 10px;background:#242628;border-radius:3px;cursor:pointer;user-select:none}.jdsc-wf-subfolder-header:hover{background:#2a2e32}.jdsc-wf-item{position:relative;padding:10px 12px;margin:4px 0;background:#1c1f22;border-radius:4px;cursor:pointer;transition:background .2s}.jdsc-wf-item:hover{background:#2a2e32}.jdsc-wf-item-name{font-size:14px;color:#d9d9d9;margin-bottom:4px;padding-right:60px}.jdsc-wf-item-path{font-size:11px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.jdsc-wf-item-folder{font-size:11px;color:#1890ff;margin-bottom:2px;font-weight:500}.jdsc-wf-item-actions{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:flex;gap:8px}.jdsc-wf-btn{padding:4px 8px;border:none;background:transparent;color:#888;cursor:pointer;font-size:16px;transition:color .2s}.jdsc-wf-btn:hover{color:#fff}.jdsc-wf-btn-star{color:#888}.jdsc-wf-btn-star.active{color:#fadb14}.jdsc-wf-btn-delete:hover{color:#ff4d4f}.jdsc-wf-fav-item{padding:10px 12px;margin:6px 0;background:#1c1f22;border-radius:4px;cursor:pointer;position:relative}.jdsc-wf-fav-item:hover{background:#2a2e32}.jdsc-wf-fav-name{font-size:14px;color:#d9d9d9;font-weight:500;margin-bottom:2px;padding-right:60px}.jdsc-wf-fav-original{font-size:11px;color:#777;margin-bottom:2px;padding-right:60px}.jdsc-wf-fav-path{font-size:11px;color:#666}.jdsc-wf-add-folder{padding:10px 14px;background:#1677ff;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px}.jdsc-wf-add-folder:hover{background:#1890ff}.jdsc-wf-empty{padding:20px;text-align:center;color:#666;font-size:13px}.jdsc-wf-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:99999}.jdsc-wf-confirm-dialog{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1c1f22;border-radius:8px;padding:20px;min-width:400px;max-width:600px;box-shadow:0 10px 40px rgba(0,0,0,0.5);z-index:100000}.jdsc-wf-confirm-title{font-size:18px;font-weight:600;color:#d9d9d9;margin-bottom:16px}.jdsc-wf-confirm-content{font-size:14px;color:#bfbfbf;line-height:1.6;margin-bottom:20px}.jdsc-wf-confirm-buttons{display:flex;gap:12px;justify-content:flex-end}.jdsc-wf-confirm-btn{padding:8px 20px;border:none;border-radius:4px;cursor:pointer;font-size:14px}.jdsc-wf-confirm-btn-cancel{background:#2a2e32;color:#d9d9d9}.jdsc-wf-confirm-btn-cancel:hover{background:#333}.jdsc-wf-confirm-btn-ok{background:#ff4d4f;color:#fff}.jdsc-wf-confirm-btn-ok:hover{background:#ff7875}.jdsc-wf-modal .jdsc-header{background:linear-gradient(315deg, #1677ff 0%, #0f5acc 100%) !important}.jdsc-wf-modal{user-select:none !important}
+      .jdsc-wf-search-container{position:relative;flex:1;display:flex;align-items:center}
+      .jdsc-wf-search-input{flex:1;height:32px;padding:4px 36px 4px 12px !important;box-sizing:border-box;max-width:none;font-size:13px;border:1px solid #3a3f44;background:#1a1d21;color:#e6e9ec;border-radius:6px;transition:border-color .2s, box-shadow .2s}
+      .jdsc-wf-search-input:focus{border-color:#1677ff;box-shadow:0 0 0 2px rgba(22,119,255,0.2);outline:none}
+      .jdsc-wf-search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;background:#4b5563;color:#fff;display:none;align-items:center;justify-content:center;font-size:10px;cursor:pointer;transition:background .2s;border:none}
+      .jdsc-wf-search-clear:hover{background:#fa3d64}
+      .jdsc-wf-search-clear.visible{display:flex}
+      .jdsc-wf-folder{margin:12px 0;padding:0 16px}
+      .jdsc-wf-folder-header{display:flex;align-items:center;padding:10px 14px;background:#2a2e32;border-radius:6px;cursor:pointer;user-select:none;transition:background .2s, transform .1s;border:1px solid #3a3f44}
+      .jdsc-wf-folder-header:hover{background:#333a40;transform:translateY(-1px)}
+      .jdsc-wf-folder-header:active{transform:translateY(0)}
+      .jdsc-wf-folder-icon{margin-right:10px;font-size:16px}
+      .jdsc-wf-folder-name{flex:1;font-size:14px;font-weight:600;color:#e6e9ec;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .jdsc-wf-folder-toggle{font-size:10px;color:#888;margin-right:10px;transition:transform .2s}
+      .jdsc-wf-folder-content{padding:6px 0 6px 24px}
+      .jdsc-wf-subfolder{margin:6px 0}
+      .jdsc-wf-subfolder-header{display:flex;align-items:center;padding:8px 12px;background:#24282d;border-radius:4px;cursor:pointer;user-select:none;transition:background .2s;border:1px solid #2e3338}
+      .jdsc-wf-subfolder-header:hover{background:#2d3238}
+      .jdsc-wf-item{position:relative;padding:12px 14px;margin:6px 0;background:#252a30;border-radius:8px;cursor:pointer;transition:all .2s;border:1px solid #31373d;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
+      .jdsc-wf-item:hover{background:#2e343a;border-color:#4a5159;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.2)}
+      .jdsc-wf-item-name{font-size:14px;font-weight:500;color:#e6e9ec;margin-bottom:6px;padding-right:64px;line-height:1.4}
+      .jdsc-wf-item-path{font-size:11px;color:#8a9199;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace}
+      .jdsc-wf-item-folder{font-size:11px;color:#1890ff;margin-bottom:4px;font-weight:600}
+      .jdsc-wf-item-actions{position:absolute;right:12px;top:50%;transform:translateY(-50%);display:flex;gap:10px}
+      .jdsc-wf-btn{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:none;background:rgba(255,255,255,0.05);color:#8a9199;cursor:pointer;font-size:16px;transition:all .2s}
+      .jdsc-wf-btn:hover{background:rgba(255,255,255,0.1);color:#fff}
+      .jdsc-wf-btn-star{color:#8a9199}
+      .jdsc-wf-btn-star.active{color:#fadb14;background:rgba(250,219,20,0.1)}
+      .jdsc-wf-btn-star.active:hover{color:#ffec3d;background:rgba(250,219,20,0.2)}
+      .jdsc-wf-btn-delete:hover{color:#ff4d4f;background:rgba(255,77,79,0.1)}
+      .jdsc-wf-fav-item{padding:2px 8px;margin:4px 0;background:#252a30;border-radius:8px;cursor:pointer;position:relative;border:1px solid #31373d;transition:all .2s;box-shadow:0 2px 4px rgba(0,0,0,0.1);min-height:calc(1.4em * 3);display:flex;align-items:center;}
+      .jdsc-wf-fav-item:hover{background:#2e343a;border-color:#4a5159;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.2)}
+      .jdsc-wf-fav-name{font-size:14px;color:#e6e9ec;font-weight:600;margin-bottom:0;cursor:pointer;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-wrap:break-word;flex:1;}
+      .jdsc-wf-fav-original{font-size:11px;color:#8a9199;margin-bottom:4px}
+      .jdsc-wf-fav-path{font-size:9px;color:#6b7280;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .jdsc-wf-add-folder{padding:0 16px;background:#1677ff;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;height:32px;transition:all .2s;display:flex;align-items:center;gap:6px}
+      .jdsc-wf-add-folder:hover{background:#4096ff;box-shadow:0 0 12px rgba(22,119,255,0.3)}
+      .jdsc-wf-empty{padding:40px 20px;text-align:center;color:#6b7280;font-size:13px}
+      .jdsc-wf-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);z-index:99999}
+      .jdsc-wf-confirm-dialog{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1c1f22;border-radius:12px;padding:24px;min-width:400px;max-width:600px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:100000;border:1px solid #3a3f44}
+      .jdsc-wf-confirm-title{font-size:18px;font-weight:600;color:#e6e9ec;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+      .jdsc-wf-confirm-content{font-size:14px;color:#b7bcc2;line-height:1.6;margin-bottom:24px;background:rgba(0,0,0,0.2);padding:12px;border-radius:6px}
+      .jdsc-wf-confirm-buttons{display:flex;gap:12px;justify-content:flex-end}
+      .jdsc-wf-confirm-btn{padding:8px 20px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;transition:all .2s}
+      .jdsc-wf-confirm-btn-cancel{background:#2a2e32;color:#b7bcc2}
+      .jdsc-wf-confirm-btn-cancel:hover{background:#3a3f44;color:#fff}
+      .jdsc-wf-confirm-btn-ok{background:#ff4d4f;color:#fff}
+      .jdsc-wf-confirm-btn-ok:hover{background:#ff7875;box-shadow:0 0 12px rgba(255,77,79,0.3)}
+      .jdsc-wf-modal .jdsc-header{background:linear-gradient(135deg, #1a1d21 0%, #2a2e32 100%) !important;border-bottom:1px solid #3a3f44 !important;height:48px !important;padding:0 16px !important}
+      .jdsc-wf-modal .jdsc-header::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg, #1677ff, #52c41a)}
+      .jdsc-wf-modal .jdsc-title{font-size:15px !important;font-weight:600 !important;letter-spacing:0.5px}
+      .jdsc-wf-modal{user-select:none !important;border:1px solid #3a3f44 !important;box-shadow:0 24px 64px rgba(0,0,0,0.5) !important;border-radius:12px !important;overflow:hidden !important;}
+      .jdsc-wf-modal .jdsc-tabs{background:#1a1d21 !important;padding:8px 16px 0 16px !important;gap:4px !important}
+      .jdsc-wf-modal .jdsc-tab{border-radius:8px 8px 0 0 !important;padding:8px 20px !important;font-size:13px !important;font-weight:500 !important;color:#8a9199 !important;transition:all .2s !important}
+      .jdsc-wf-modal .jdsc-tab:hover{background:rgba(255,255,255,0.05) !important;color:#e6e9ec !important}
+      .jdsc-wf-modal .jdsc-tab.active{background:#1a1d21 !important;color:#1677ff !important;font-weight:600 !important;border:1px solid #3a3f44 !important;border-bottom:none !important}
+      
+      /* 右键菜单样式 */
+      .jdsc-wf-context-menu {
+        position: fixed;
+        background: #1c1f22;
+        border: 1px solid #3a3f44;
+        border-radius: 8px;
+        padding: 4px 0;
+        z-index: 10001;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        min-width: 160px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .jdsc-wf-menu-item {
+        padding: 8px 16px;
+        color: #e6e9ec;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .jdsc-wf-menu-item:hover {
+        background: #1677ff;
+        color: #fff;
+      }
+      .jdsc-wf-menu-item.danger:hover {
+        background: #ff4d4f;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -265,32 +349,32 @@
     const style = createEl('style');
     style.id = 'jdsc-workflow-drag-styles';
     style.textContent = `
-      .jdsc-body{ padding: 0 6px 32px 6px; overflow-y:auto; overflow-x:hidden; }
-      .jdsc-body::-webkit-scrollbar { width: 10px; }
-      .jdsc-body::-webkit-scrollbar-track { background: #1c1f22; border-left: 1px solid #2a2e32; }
-      .jdsc-body::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 5px; border: 2px solid #1c1f22; }
-      .jdsc-body::-webkit-scrollbar-thumb:hover { background: #6b7280; }
-      .jdsc-wf-fav-item{ position: relative; padding-left: 56px; }
-      .jdsc-wf-drag{ position:absolute; left:16px; top:50%; transform:translateY(-50%); width:22px; height:22px; border-radius:6px; background:#2a2e32; color:#d9d9d9; display:flex; align-items:center; justify-content:center; cursor:grab; font-size:14px; }
+      .jdsc-body{ padding: 12px 16px 32px 16px; overflow-y:auto; overflow-x:hidden; background:#1a1d21; }
+      .jdsc-body::-webkit-scrollbar { width: 8px; }
+      .jdsc-body::-webkit-scrollbar-track { background: transparent; }
+      .jdsc-body::-webkit-scrollbar-thumb { background: #3a3f44; border-radius: 4px; transition: background .2s; }
+      .jdsc-body::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+      .jdsc-wf-fav-item{ position: relative; padding-left: 30px; }
+      .jdsc-wf-drag{ position:absolute; left:8px; top:50%; transform:translateY(-50%); width:18px; height:18px; border-radius:4px; background:rgba(255,255,255,0.05); color:#8a9199; display:flex; align-items:center; justify-content:center; cursor:grab; font-size:11px; transition:all .2s; }
       .jdsc-wf-fav-name, .jdsc-wf-fav-original, .jdsc-wf-fav-path{ margin-left: 0; }
-      .jdsc-wf-drag:hover{ background:#3a3f44; color:#fff; }
+      .jdsc-wf-drag:hover{ background:rgba(255,255,255,0.1); color:#fff; }
       .jdsc-wf-drag:active{ cursor:grabbing; }
+      .jdsc-wf-history-item{ padding-left: 14px !important; }
+      .jdsc-wf-history-item .jdsc-wf-fav-name{ height: auto !important; -webkit-line-clamp: 1 !important; }
+      .jdsc-wf-history-item .jdsc-wf-fav-path{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
       .jdsc-wf-noselect, .jdsc-wf-noselect * { user-select: none; }
-      .jdsc-wf-drag-ghost{ position:fixed; left:0; top:0; z-index:10001; background:#2a2e32; color:#d9d9d9; border-radius:6px; box-shadow:0 8px 18px rgba(0,0,0,.35); opacity:.92; pointer-events:none; }
-      .jdsc-wf-drag-placeholder{ border:2px solid #52c41a; border-radius:6px; box-sizing:border-box; background:rgba(82,196,26,0.06); }
-      /* brightness tweaks */
-      .jdsc-wf-item{ background:#252a30 !important; }
-      .jdsc-wf-item:hover{ background:#2e343a !important; }
-      .jdsc-wf-fav-item{ background:#252a30 !important; }
-      .jdsc-wf-fav-item:hover{ background:#2e343a !important; }
-      .jdsc-wf-fav-name{ color:#e6e9ec !important; }
-      .jdsc-wf-fav-original{ color:#b7bcc2 !important; }
-      .jdsc-wf-fav-path{ color:#a6acb2 !important; }
-      .jdsc-wf-btn{ color:#b0b6bb !important; }
-      .jdsc-wf-btn:hover{ color:#ffffff !important; }
-      .jdsc-wf-modal .jdsc-footer{ display:flex !important; gap:10px !important; padding:14px 16px !important; border-top:1px solid #2a2e32 !important; align-items:center !important; justify-content:space-between !important; flex-shrink:0 !important; box-sizing:content-box !important; height:auto !important; min-height:auto !important; }
-      .jdsc-wf-modal .jdsc-btn{ height:32px !important; padding:0 14px !important; border-radius:6px !important; background:#2a2e32 !important; color:#b0b6bb !important; display:inline-flex !important; align-items:center !important; cursor:pointer !important; white-space:nowrap !important; font-size:13px !important; margin:0 !important; border:none !important; }
-      .jdsc-wf-modal .jdsc-btn:hover{ color:#ffffff !important; }
+      .jdsc-wf-drag-ghost{ position:fixed; left:0; top:0; z-index:10001; background:#2e343a; color:#e6e9ec; border-radius:8px; box-shadow:0 12px 32px rgba(0,0,0,0.4); opacity:.95; pointer-events:none; border:1px solid #4a5159; }
+      .jdsc-wf-drag-placeholder{ border:2px dashed #1677ff; border-radius:8px; box-sizing:border-box; background:rgba(22,119,255,0.05); margin:8px 0; }
+      
+      /* 收藏列表两列布局 (收藏+同款) */
+      .jdsc-wf-fav-grid{ display:flex !important; gap:4px !important; width:100% !important; }
+      .jdsc-wf-fav-col{ flex:1 !important; display:flex !important; flex-direction:column !important; gap:4px !important; min-width:0 !important; }
+      .jdsc-wf-fav-col .jdsc-wf-fav-item{ width:100% !important; box-sizing:border-box !important; }
+      
+      .jdsc-wf-modal .jdsc-footer{ display:flex !important; gap:12px !important; padding:12px 16px !important; border-top:1px solid #3a3f44 !important; align-items:center !important; justify-content:space-between !important; flex-shrink:0 !important; box-sizing:border-box !important; height:56px !important; background:#1a1d21 !important; }
+      .jdsc-wf-modal .jdsc-btn{ height:32px !important; padding:0 16px !important; border-radius:6px !important; background:#2a2e32 !important; color:#b7bcc2 !important; display:inline-flex !important; align-items:center !important; cursor:pointer !important; white-space:nowrap !important; font-size:13px !important; font-weight:500 !important; margin:0 !important; border:1px solid #3a3f44 !important; transition:all .2s !important; }
+      .jdsc-wf-modal .jdsc-btn:hover{ background:#3a3f44 !important; color:#fff !important; border-color:#4a5159 !important; }
+      .jdsc-wf-modal .jdsc-btn:active{ transform:translateY(1px) !important; }
     `;
     document.head.appendChild(style);
   }
@@ -660,28 +744,24 @@
   window.__jdsc_createWorkflowModal = function (toggle) {
     // 【单例模式+切换】检查是否已有窗口
     const existing = document.querySelector('.jdsc-wf-modal');
-    if (existing) {
-      // 如果已存在,直接移除(关闭)
-      existing.remove();
-      return null; // 返回 null 表示已关闭
-    }
+    if (existing) return existing;
 
-    // 如果不存在,创建新窗口
     ensureWorkflowStyles();
     ensureWorkflowDragStyles();
+
     const modal = createEl("div", "jdsc-modal jdsc-wf-modal");
-    modal.id = "jdsc-workflow-modal-root"; // 添加唯一ID方便查找
-    const pos = loadWF(KEY_WF_MODAL_POS, null);
-    if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
-      modal.style.left = pos.x + "px";
-      modal.style.top = pos.y + "px";
+    const savedPos = loadWF(KEY_WF_MODAL_POS, null);
+    if (savedPos && typeof savedPos.x === 'number') {
+      modal.style.left = savedPos.x + "px";
+      modal.style.top = savedPos.y + "px";
+      modal.style.transform = "none";
     } else {
       modal.style.left = "50%";
       modal.style.top = "50%";
       modal.style.transform = "translate(-50%, -50%)";
     }
     const header = createEl("div", "jdsc-header");
-    const title = createEl("div", "jdsc-title", "工作流+ (v2)");
+    const title = createEl("div", "jdsc-title", "工作流+");
     const closeBtn = createEl("div", "jdsc-close", "✕");
     closeBtn.onclick = toggle;
     header.appendChild(title);
@@ -867,8 +947,218 @@
       dragging = false;
       saveWF(KEY_WF_MODAL_POS, { x: modal.offsetLeft, y: modal.offsetTop });
     });
+
+    // 标题栏右键关闭对话框
+    header.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        modal.remove();
+      } catch { }
+    });
+
     let currentMode = "favorites";
     let currentRefreshId = 0;
+
+    // 右键菜单函数
+    function showWFContextMenu(e, data, type) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // 移除已存在的菜单
+      const existingMenu = document.querySelector('.jdsc-wf-context-menu');
+      if (existingMenu) existingMenu.remove();
+
+      const menu = createEl('div', 'jdsc-wf-context-menu');
+      menu.style.left = `${e.clientX}px`;
+      menu.style.top = `${e.clientY}px`;
+
+      // 菜单项创建辅助函数
+      const createMenuItem = (icon, text, onClick, className = '') => {
+        const item = createEl('div', `jdsc-wf-menu-item ${className}`);
+        item.innerHTML = `${icon} ${text}`;
+        item.onclick = (ev) => {
+          ev.stopPropagation();
+          onClick();
+          menu.remove();
+        };
+        return item;
+      };
+
+      const favs = getWFFavs();
+
+      if (type === 'file') {
+        // 文件列表右键菜单
+        const isFav = !!favs[data.path];
+
+        // 收藏/取消收藏
+        menu.appendChild(createMenuItem(
+          isFav ? '💔' : '⭐',
+          isFav ? '取消收藏' : '添加到收藏',
+          () => {
+            if (isFav) {
+              delete favs[data.path];
+            } else {
+              favs[data.path] = {
+                custom_name: data.name.replace(/\.json$/i, ''),
+                original_name: data.name,
+                original_path: data.path,
+                starred: false,
+                added_time: Date.now()
+              };
+            }
+            saveWF(KEY_WF_FAVS, favs);
+            refresh();
+          }
+        ));
+
+        // 复制路径
+        menu.appendChild(createMenuItem('📋', '复制路径', async () => {
+          try {
+            await navigator.clipboard.writeText(data.path);
+            const tip = createEl('div');
+            tip.textContent = '✓ 已复制路径';
+            tip.style.cssText = 'position:fixed;top:20px;right:20px;background:#52c41a;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
+            document.body.appendChild(tip);
+            setTimeout(() => tip.remove(), 1500);
+          } catch { alert('复制失败'); }
+        }));
+
+        // 删除文件
+        menu.appendChild(createMenuItem('🗑️', '删除文件', () => {
+          showConfirmDialog(
+            '⚠ 确认删除工作流？',
+            `<strong>文件：</strong>${data.name}<br><strong>路径：</strong>${data.path}<br><br><strong style="color:#ff4d4f;">此操作将永久删除文件！</strong>`,
+            async () => {
+              const ok = await deleteWorkflowFile(data.path);
+              if (ok) {
+                if (favs[data.path]) {
+                  delete favs[data.path];
+                  saveWF(KEY_WF_FAVS, favs);
+                }
+                refresh();
+              } else {
+                alert('删除失败');
+              }
+            }
+          );
+        }, 'danger'));
+
+      } else if (type === 'fav') {
+        // 收藏列表右键菜单
+        const fav = favs[data.path];
+        if (!fav) return;
+
+        // 置顶/取消置顶
+        menu.appendChild(createMenuItem(
+          fav.starred ? '📍' : '📌',
+          fav.starred ? '取消置顶' : '置顶',
+          () => {
+            fav.starred = !fav.starred;
+            saveWF(KEY_WF_FAVS, favs);
+            refresh();
+          }
+        ));
+
+        // 重命名
+        menu.appendChild(createMenuItem('📝', '重命名', () => {
+          const newName = prompt('请输入新名称:', fav.custom_name || fav.original_name);
+          if (newName && newName.trim()) {
+            fav.custom_name = newName.trim();
+            saveWF(KEY_WF_FAVS, favs);
+            refresh();
+          }
+        }));
+
+        // 取消收藏
+        menu.appendChild(createMenuItem('💔', '取消收藏', () => {
+          if (confirm(`确定要取消收藏 "${fav.custom_name || fav.original_name}" 吗？`)) {
+            delete favs[data.path];
+            saveWF(KEY_WF_FAVS, favs);
+            refresh();
+          }
+        }, 'danger'));
+
+        // 复制路径
+        menu.appendChild(createMenuItem('📋', '复制路径', async () => {
+          try {
+            await navigator.clipboard.writeText(data.path);
+            const tip = createEl('div');
+            tip.textContent = '✓ 已复制路径';
+            tip.style.cssText = 'position:fixed;top:20px;right:20px;background:#52c41a;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
+            document.body.appendChild(tip);
+            setTimeout(() => tip.remove(), 1500);
+          } catch { alert('复制失败'); }
+        }));
+
+      } else if (type === 'history') {
+        // 历史记录右键菜单
+        const isFav = data.path && !!favs[data.path];
+
+        // 添加到收藏（仅当有路径且未收藏时）
+        if (data.path && !isFav) {
+          menu.appendChild(createMenuItem('⭐', '添加到收藏', () => {
+            favs[data.path] = {
+              custom_name: data.name,
+              original_name: data.name + '.json',
+              original_path: data.path,
+              starred: false,
+              added_time: Date.now()
+            };
+            saveWF(KEY_WF_FAVS, favs);
+            refresh();
+          }));
+        }
+
+        // 从历史中移除
+        menu.appendChild(createMenuItem('🗑️', '从历史中移除', () => {
+          let hist = getWFHistory();
+          hist = hist.filter(h => {
+            if (data.path && h.path === data.path) return false;
+            if (!data.path && h.name === data.name) return false;
+            return true;
+          });
+          saveWFHistory(hist);
+          refresh();
+        }, 'danger'));
+
+        // 复制路径（仅当有路径时）
+        if (data.path) {
+          menu.appendChild(createMenuItem('📋', '复制路径', async () => {
+            try {
+              await navigator.clipboard.writeText(data.path);
+              const tip = createEl('div');
+              tip.textContent = '✓ 已复制路径';
+              tip.style.cssText = 'position:fixed;top:20px;right:20px;background:#52c41a;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
+              document.body.appendChild(tip);
+              setTimeout(() => tip.remove(), 1500);
+            } catch { alert('复制失败'); }
+          }));
+        }
+      }
+
+      document.body.appendChild(menu);
+
+      // 防止菜单超出屏幕
+      const rect = menu.getBoundingClientRect();
+      const screenW = window.innerWidth;
+      const screenH = window.innerHeight;
+
+      if (rect.right > screenW) {
+        menu.style.left = `${screenW - rect.width - 10}px`;
+      }
+      if (rect.bottom > screenH) {
+        menu.style.top = `${screenH - rect.height - 10}px`;
+      }
+
+      // 点击外部关闭菜单
+      const closeMenu = () => {
+        menu.remove();
+        document.removeEventListener('click', closeMenu);
+      };
+      setTimeout(() => document.addEventListener('click', closeMenu), 0);
+    }
+
     async function refresh() {
       const myId = ++currentRefreshId;
       globalRefreshFn = refresh;
@@ -958,55 +1248,23 @@
             } else {
               for (const file of filtered) {
                 const item = createEl("div", "jdsc-wf-item");
-
-                // 如果是搜索模式且文件在子文件夹中，显示子文件夹信息
                 if (searchKw && file.parentFolder) {
                   const itemFolder = createEl("div", "jdsc-wf-item-folder", `📁 ${file.parentFolder}`);
                   item.appendChild(itemFolder);
                 }
-
                 const itemName = createEl("div", "jdsc-wf-item-name", file.name);
                 item.appendChild(itemName);
-
                 const folderPath = file.path.replace(/[\\\/][^\\\/]+$/, '');
                 const itemPath = createEl("div", "jdsc-wf-item-path", folderPath);
                 item.appendChild(itemPath);
-                const actions = createEl("div", "jdsc-wf-item-actions");
-                const isFav = !!favs[file.path];
-                const starBtn = createEl("button", `jdsc-wf-btn jdsc-wf-btn-star ${isFav ? 'active' : ''}`, isFav ? "★" : "☆");
-                starBtn.onclick = (e) => {
+
+                item.addEventListener('contextmenu', (e) => {
+                  e.preventDefault();
                   e.stopPropagation();
-                  const favs = getWFFavs();
-                  if (favs[file.path]) {
-                    delete favs[file.path];
-                  } else {
-                    favs[file.path] = { custom_name: file.name.replace(/\.json$/i, ''), original_name: file.name, original_path: file.path, starred: false, added_time: Date.now() };
-                  }
-                  saveWF(KEY_WF_FAVS, favs);
-                  refresh();
-                };
-                const delBtn = createEl("button", "jdsc-wf-btn jdsc-wf-btn-delete", "🗑");
-                delBtn.onclick = (e) => {
-                  e.stopPropagation();
-                  showConfirmDialog("⚠ 确认删除工作流？", `<strong>文件：</strong>${file.name}<br><strong>路径：</strong>${file.path}<br><br><strong style="color:#ff4d4f;">此操作将永久删除文件！</strong>`, async () => {
-                    const ok = await deleteWorkflowFile(file.path);
-                    if (ok) {
-                      const favs = getWFFavs();
-                      if (favs[file.path]) {
-                        delete favs[file.path];
-                        saveWF(KEY_WF_FAVS, favs);
-                      }
-                      refresh();
-                    } else {
-                      alert('删除失败');
-                    }
-                  });
-                };
-                actions.appendChild(starBtn);
-                actions.appendChild(delBtn);
-                item.appendChild(actions);
+                  showWFContextMenu(e, file, 'file');
+                });
+
                 item.onclick = (e) => {
-                  if (e.target.tagName === 'BUTTON') return;
                   openWorkflowInCanvas(file.path);
                   toggle();
                 };
@@ -1028,65 +1286,34 @@
           body.appendChild(createEl("div", "jdsc-wf-empty", searchKw ? "无匹配的历史" : "暂无历史记录"));
         } else {
           for (const item of filtered) {
-            const row = createEl("div", "jdsc-wf-fav-item");
-
-            // 图标和名称
+            const row = createEl("div", "jdsc-wf-fav-item jdsc-wf-history-item");
             const icon = item.method === 'jdsc' ? "📄" : "📝";
             const itemName = createEl("div", "jdsc-wf-fav-name", `${icon} ${item.name}`);
             if (item.method !== 'jdsc') itemName.title = "通过原生方式打开（可能无路径）";
-            itemName.style.paddingRight = "80px"; // 为按钮预留空间
-
-            // 时间
             const timeStr = new Date(item.time).toLocaleString();
             const timeDiv = createEl("div", "jdsc-wf-fav-original", `时间: ${timeStr}`);
-            timeDiv.style.paddingRight = "80px"; // 为按钮预留空间
-
-            // 路径显示
             const pathDiv = createEl("div", "jdsc-wf-fav-path", item.path || "无路径信息");
-            pathDiv.style.paddingRight = "80px"; // 为按钮预留空间
 
-            // 操作按钮
-            const actions = createEl("div", "jdsc-wf-item-actions");
-
-            // 收藏按钮（只有有路径的才能收藏）
-            if (item.path) {
-              const favs = getWFFavs();
-              const isFav = !!favs[item.path];
-              const starBtn = createEl("button", `jdsc-wf-btn jdsc-wf-btn-star ${isFav ? 'active' : ''}`, isFav ? "★" : "☆");
-              starBtn.title = isFav ? "取消收藏" : "收藏";
-              starBtn.onclick = (e) => {
-                e.stopPropagation();
-                const favs = getWFFavs();
-                if (favs[item.path]) {
-                  delete favs[item.path];
-                } else {
-                  favs[item.path] = { custom_name: item.name, original_name: item.name, original_path: item.path, starred: false, added_time: Date.now() };
-                }
-                saveWF(KEY_WF_FAVS, favs);
-                refresh();
-              };
-              actions.appendChild(starBtn);
-            }
-
-            // 删除按钮
-            const delBtn = createEl("button", "jdsc-wf-btn jdsc-wf-btn-delete", "✕");
-            delBtn.title = "从历史中删除";
-            delBtn.onclick = (e) => {
+            row.addEventListener('contextmenu', (e) => {
+              e.preventDefault();
               e.stopPropagation();
-              let h = getWFHistory();
-              h = h.filter(x => x.time !== item.time);
-              saveWFHistory(h);
-              refresh();
-            };
-            actions.appendChild(delBtn);
+              showWFContextMenu(e, { name: item.name, path: item.path }, 'history');
+            });
 
-            row.appendChild(itemName);
-            row.appendChild(timeDiv);
-            row.appendChild(pathDiv);
-            row.appendChild(actions);
+            // 包装内容容器
+            const content = createEl("div", "jdsc-wf-item-content");
+            content.style.display = "flex";
+            content.style.flexDirection = "column";
+            content.style.flex = "1";
+            content.style.minWidth = "0";
+
+            content.appendChild(itemName);
+            content.appendChild(timeDiv);
+            content.appendChild(pathDiv);
+
+            row.appendChild(content);
 
             row.onclick = (e) => {
-              if (e.target.tagName === 'BUTTON') return;
               if (item.path) {
                 openWorkflowInCanvas(item.path);
                 toggle();
@@ -1094,7 +1321,6 @@
                 alert("此记录无路径信息，无法直接打开。");
               }
             };
-
             body.appendChild(row);
           }
         }
@@ -1121,53 +1347,36 @@
         if (renderListAll.length === 0) {
           body.appendChild(createEl("div", "jdsc-wf-empty", searchKw ? "无匹配的收藏" : "还没有收藏的工作流"));
         } else {
-          for (const fav of renderListAll) {
+          // 创建两列布局容器 (收藏+同款)
+          const gridContainer = createEl("div", "jdsc-wf-fav-grid");
+          const colL = createEl("div", "jdsc-wf-fav-col");
+          const colR = createEl("div", "jdsc-wf-fav-col");
+          gridContainer.appendChild(colL);
+          gridContainer.appendChild(colR);
+
+          // 将items分成左右两列
+          const splitList = (list) => {
+            const a = [], b = [];
+            list.forEach((it, i) => (i % 2 === 0 ? a : b).push(it));
+            return [a, b];
+          };
+          const [leftList, rightList] = splitList(renderListAll);
+
+          // 渲染左列
+          for (const fav of leftList) {
             const item = createEl("div", "jdsc-wf-fav-item");
             const handle = createEl('div', 'jdsc-wf-drag', '⋮⋮');
             item.appendChild(handle);
-            const favName = createEl("div", "jdsc-wf-fav-name", `❤ ${fav.custom_name || fav.original_name}`);
-            const favOriginal = createEl("div", "jdsc-wf-fav-original", `原名：${fav.original_name}`);
-            const favFolderPath = fav.original_path.replace(/[\\\/][^\\\/]+$/, '');
-            const favPath = createEl("div", "jdsc-wf-fav-path", favFolderPath);
-            const actions = createEl("div", "jdsc-wf-item-actions");
-            const pinBtn = createEl("button", `jdsc-wf-btn ${fav.starred ? 'active' : ''}`, fav.starred ? "📌" : "📍");
-            pinBtn.title = fav.starred ? "取消常用" : "标记常用";
-            pinBtn.onclick = (e) => {
-              e.stopPropagation();
-              const favs = getWFFavs();
-              if (favs[fav.path]) {
-                favs[fav.path].starred = !favs[fav.path].starred;
-                saveWF(KEY_WF_FAVS, favs);
-                refresh();
-              }
-            };
-            const removeBtn = createEl("button", "jdsc-wf-btn jdsc-wf-btn-delete", "✕");
-            removeBtn.title = "取消收藏";
-            removeBtn.onclick = (e) => {
-              e.stopPropagation();
-              const favs = getWFFavs();
-              delete favs[fav.path];
-              saveWF(KEY_WF_FAVS, favs);
-              refresh();
-            };
-            actions.appendChild(pinBtn);
-            actions.appendChild(removeBtn);
-            item.appendChild(favName);
-            item.appendChild(favOriginal);
-            item.appendChild(favPath);
-            item.appendChild(actions);
-            item.oncontextmenu = (e) => {
+            const itemName = createEl("div", "jdsc-wf-fav-name", (fav.starred ? "📌 " : "") + (fav.custom_name || fav.original_name));
+            // 悬停时显示路径而不是名称
+            itemName.title = fav.path;
+            item.appendChild(itemName);
+
+            item.addEventListener('contextmenu', (e) => {
               e.preventDefault();
-              const newName = prompt("重命名工作流收藏：", fav.custom_name || fav.original_name);
-              if (newName && newName !== fav.custom_name) {
-                const favs = getWFFavs();
-                if (favs[fav.path]) {
-                  favs[fav.path].custom_name = newName;
-                  saveWF(KEY_WF_FAVS, favs);
-                  refresh();
-                }
-              }
-            };
+              e.stopPropagation();
+              showWFContextMenu(e, { name: fav.custom_name || fav.original_name, path: fav.path }, 'fav');
+            });
             item.onclick = (e) => {
               if (e.target.tagName === 'BUTTON') return;
               openWorkflowInCanvas(fav.path);
@@ -1180,15 +1389,15 @@
             const onMove = (e) => {
               if (!dragging) return; curY = e.clientY; try { e.preventDefault(); } catch { }
               if (ghost) ghost.style.top = `${Math.round(curY - offsetY)}px`;
-              const rows = Array.from(body.querySelectorAll('.jdsc-wf-fav-item')).filter(r => r !== item && String(r.dataset.starred || '0') === String(item.dataset.starred || '0'));
+              const rows = Array.from(gridContainer.querySelectorAll('.jdsc-wf-fav-item')).filter(r => r !== item && String(r.dataset.starred || '0') === String(item.dataset.starred || '0'));
               if (!rows.length || !placeholder) return;
               const rects = rows.map(r => { const br = r.getBoundingClientRect(); return { r, mid: br.top + br.height / 2 }; });
               let nearestIdx = 0; let best = Infinity;
               rects.forEach((ent, idx) => { const d = Math.abs(curY - ent.mid); if (d < best) { best = d; nearestIdx = idx; } });
               const targetEl = rects[nearestIdx]?.r || null;
               if (targetEl) {
-                if (curY < rects[nearestIdx].mid) body.insertBefore(placeholder, targetEl);
-                else body.insertBefore(placeholder, targetEl.nextSibling);
+                if (curY < rects[nearestIdx].mid) gridContainer.insertBefore(placeholder, targetEl);
+                else gridContainer.insertBefore(placeholder, targetEl.nextSibling);
               }
             };
             const onUp = (e) => {
@@ -1200,7 +1409,7 @@
               if (placeholder) { try { placeholder.replaceWith(item); } catch { } placeholder = null; }
               item.style.visibility = '';
               try {
-                const rowsAll = Array.from(body.querySelectorAll('.jdsc-wf-fav-item'));
+                const rowsAll = Array.from(gridContainer.querySelectorAll('.jdsc-wf-fav-item'));
                 const pinnedSeq = rowsAll.filter(r => String(r.dataset.starred || '0') === '1').map(r => String(r.dataset.path || ''));
                 const unpinnedSeq = rowsAll.filter(r => String(r.dataset.starred || '0') !== '1').map(r => String(r.dataset.path || ''));
                 const visibleSeq = pinnedSeq.concat(unpinnedSeq);
@@ -1229,20 +1438,102 @@
               window.addEventListener('mousemove', onMove);
               window.addEventListener('mouseup', onUp);
             });
-            body.appendChild(item);
+            colL.appendChild(item);
           }
+
+          // 渲染右列
+          for (const fav of rightList) {
+            const item = createEl("div", "jdsc-wf-fav-item");
+            const handle = createEl('div', 'jdsc-wf-drag', '⋮⋮');
+            item.appendChild(handle);
+            const itemName = createEl("div", "jdsc-wf-fav-name", (fav.starred ? "📌 " : "") + (fav.custom_name || fav.original_name));
+            // 悬停时显示路径而不是名称
+            itemName.title = fav.path;
+            item.appendChild(itemName);
+
+            item.addEventListener('contextmenu', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              showWFContextMenu(e, { name: fav.custom_name || fav.original_name, path: fav.path }, 'fav');
+            });
+            item.onclick = (e) => {
+              if (e.target.tagName === 'BUTTON') return;
+              openWorkflowInCanvas(fav.path);
+              toggle();
+            };
+            item.dataset.path = fav.path;
+            item.dataset.starred = fav.starred ? '1' : '0';
+            let dragging = false; let startY = 0; let curY = 0; let ghost = null; let placeholder = null; let rowRect = null; let offsetY = 0;
+            const onMove = (e) => {
+              if (!dragging) return; curY = e.clientY; try { e.preventDefault(); } catch { }
+              if (ghost) ghost.style.top = `${Math.round(curY - offsetY)}px`;
+              const rows = Array.from(gridContainer.querySelectorAll('.jdsc-wf-fav-item')).filter(r => r !== item && String(r.dataset.starred || '0') === String(item.dataset.starred || '0'));
+              if (!rows.length || !placeholder) return;
+              const rects = rows.map(r => { const br = r.getBoundingClientRect(); return { r, mid: br.top + br.height / 2 }; });
+              let nearestIdx = 0; let best = Infinity;
+              rects.forEach((ent, idx) => { const d = Math.abs(curY - ent.mid); if (d < best) { best = d; nearestIdx = idx; } });
+              const targetEl = rects[nearestIdx]?.r || null;
+              if (targetEl) {
+                const targetCol = targetEl.parentElement;
+                if (curY < rects[nearestIdx].mid) targetCol.insertBefore(placeholder, targetEl);
+                else targetCol.insertBefore(placeholder, targetEl.nextSibling);
+              }
+            };
+            const onUp = (e) => {
+              if (!dragging) return; dragging = false;
+              window.removeEventListener('mousemove', onMove);
+              window.removeEventListener('mouseup', onUp);
+              try { modal.classList.remove('jdsc-wf-noselect'); } catch { }
+              if (ghost) { try { ghost.remove(); } catch { } ghost = null; }
+              if (placeholder) { try { placeholder.replaceWith(item); } catch { } placeholder = null; }
+              item.style.visibility = '';
+              try {
+                const rowsAll = Array.from(gridContainer.querySelectorAll('.jdsc-wf-fav-item'));
+                const pinnedSeq = rowsAll.filter(r => String(r.dataset.starred || '0') === '1').map(r => String(r.dataset.path || ''));
+                const unpinnedSeq = rowsAll.filter(r => String(r.dataset.starred || '0') !== '1').map(r => String(r.dataset.path || ''));
+                const visibleSeq = pinnedSeq.concat(unpinnedSeq);
+                let order = loadWF('jdsc:workflow_fav_order', []); if (!Array.isArray(order)) order = [];
+                const setVisible = new Set(visibleSeq);
+                const rest = order.filter(p => !setVisible.has(p));
+                const allPaths = Object.keys(getWFFavs());
+                const missing = allPaths.filter(p => !setVisible.has(p) && !rest.includes(p));
+                order = visibleSeq.concat(rest).concat(missing);
+                saveWF('jdsc:workflow_fav_order', order);
+                refresh();
+              } catch { }
+            };
+            handle.addEventListener('mousedown', (e) => {
+              e.stopPropagation(); try { e.preventDefault(); } catch { }
+              dragging = true; startY = e.clientY; curY = startY; try { modal.classList.add('jdsc-wf-noselect'); } catch { }
+              try {
+                rowRect = item.getBoundingClientRect(); offsetY = startY - rowRect.top;
+                ghost = document.createElement('div'); ghost.className = 'jdsc-wf-drag-ghost';
+                ghost.style.left = `${Math.round(rowRect.left)}px`; ghost.style.top = `${Math.round(rowRect.top)}px`;
+                ghost.style.width = `${Math.round(rowRect.width)}px`; ghost.style.height = `${Math.round(rowRect.height)}px`;
+                ghost.innerHTML = item.innerHTML; document.body.appendChild(ghost);
+                placeholder = document.createElement('div'); placeholder.className = 'jdsc-wf-drag-placeholder'; placeholder.style.height = `${Math.round(rowRect.height)}px`;
+                item.parentElement.insertBefore(placeholder, item); item.style.visibility = 'hidden';
+              } catch { }
+              window.addEventListener('mousemove', onMove);
+              window.addEventListener('mouseup', onUp);
+            });
+            colR.appendChild(item);
+          }
+
+          body.appendChild(gridContainer);
         }
       }
       try { setModalHeightForMode(); } catch { }
     }
-    tabWorkflow.onclick = () => {
+    tabWorkflow.onmouseenter = () => {
       currentMode = "workflow";
       tabWorkflow.classList.add("active");
       tabFavorites.classList.remove("active");
+      tabHistory.classList.remove("active");
       searchInput.placeholder = "搜索工作流...";
       refresh();
     };
-    tabFavorites.onclick = () => {
+    tabFavorites.onmouseenter = () => {
       currentMode = "favorites";
       tabFavorites.classList.add("active");
       tabWorkflow.classList.remove("active");
@@ -1250,7 +1541,7 @@
       searchInput.placeholder = "搜索收藏的工作流...";
       refresh();
     };
-    tabHistory.onclick = () => {
+    tabHistory.onmouseenter = () => {
       currentMode = "history";
       tabHistory.classList.add("active");
       tabWorkflow.classList.remove("active");

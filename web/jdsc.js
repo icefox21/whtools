@@ -210,46 +210,289 @@
       .jdsc-floating:hover { transform: scale(1.1); }
       .jdsc-floating:active { cursor: grabbing; }
       .jdsc-floating-workflow { background: #1677ff; }
-      .jdsc-modal { position: fixed; width: 460px; max-height: 70vh; background: #1c1f22; color: #d9d9d9; border-radius: 8px; box-shadow: 0 10px 24px rgba(0,0,0,.45); overflow: visible; z-index: 9999; display: flex; flex-direction: column; user-select: none; }
-      .jdsc-header { display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid #2a2e32; flex-shrink: 0; background: linear-gradient(315deg, #2a2e32 0%, #1c1f22 100%); }
-      .jdsc-modal-workflow .jdsc-header { background: linear-gradient(315deg, #1677ff 0%, #0f5acc 100%); }
-      .jdsc-modal-favorites .jdsc-header { background: linear-gradient(315deg, #fa3d64 0%, #d6284f 100%); }
-      .jdsc-title { font-size: 16px; font-weight: 600; flex: 1; }
-      .jdsc-close { width: 26px; height: 26px; border-radius: 6px; background: #2a2e32; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-      .jdsc-lang { width: 26px; height: 26px; border-radius: 6px; background: #2a2e32; display: flex; align-items: center; justify-content: center; cursor: pointer; margin-right: 8px; }
-      .jdsc-tabs { display: flex; gap: 12px; padding: 8px 12px; border-bottom: 1px solid #2a2e32; width: 100%; box-sizing: border-box; flex-shrink: 0; }
-      .jdsc-tab { flex: 1; text-align: center; padding: 6px 10px; border-radius: 6px; cursor: pointer; background: #2a2e32; color: #bfbfbf; }
-      .jdsc-tab.active { background: #3a3f44; color: #fff; }
-      .jdsc-search { display: flex; align-items: center; gap: 8px; padding: 8px 12px; position: relative; flex-shrink: 0; }
-      .jdsc-search input { flex: 1; height: 30px; border-radius: 6px; border: 1px solid #2a2e32; background: #14181b; color: #d9d9d9; padding: 0 30px 0 8px; }
-      .jdsc-clear { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; border-radius: 4px; background: #fa3d64; color: #fff; display: none; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; }
-      .jdsc-body { overflow: auto; max-height: calc(70vh - 200px); padding: 0 12px 8px 12px; flex: 1; min-height: 0; }
-      .jdsc-item { display: flex; gap: 10px; padding: 12px 14px; align-items: center; background: #252a30; border-radius: 8px; margin: 8px 0; box-shadow: 0 4px 10px rgba(0,0,0,.12); }
-      .jdsc-item:hover { background: #2e343a; }
-      .jdsc-drag-handle { width:22px; height:22px; min-width:22px; border-radius:6px; background:#2a2e32; color:#d9d9d9; display:flex; align-items:center; justify-content:center; cursor:grab; font-size:14px; }
-      .jdsc-drag-handle:hover { background:#3a3f44; color:#fff; }
-      .jdsc-drag-handle:active { cursor:grabbing; }
-      .jdsc-noselect, .jdsc-noselect * { user-select: none; }
-      .jdsc-drag-ghost { position: fixed; left: 0; top: 0; z-index: 10001; background: #2a2e32; color: #d9d9d9; border-radius: 6px; box-shadow: 0 8px 18px rgba(0,0,0,.35); opacity: .92; pointer-events: none; }
-      .jdsc-drag-placeholder { border: 2px solid #52c41a; border-radius: 6px; box-sizing: border-box; background: rgba(82,196,26,0.06); }
-      .jdsc-item-main { flex: 1; min-width: 0; }
-      .jdsc-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #e6e9ec; }
-      .jdsc-sub { font-size: 12px; color: #b7bcc2; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .jdsc-desc { font-size: 12px; color: #a6acb2; }
-      .jdsc-heart { width: 18px; height: 18px; min-width: 18px; padding: 0; border-radius: 9px; background: #2a2e32; color: #d9d9d9; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; }
-      .jdsc-heart.active { background: #fa3d64; color: #fff; }
-      .jdsc-tertiary { font-size: 11px; color: #b7bcc2; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .jdsc-heartmark { color: #fa3d64; margin-right: 4px; }
-      .jdsc-footer { display: flex; gap: 10px; padding: 14px 16px; border-top: 1px solid #2a2e32; align-items: center; justify-content: space-between; flex-shrink: 0; }
-      .jdsc-btn { height: 32px; padding: 0 14px; border-radius: 6px; background: #2a2e32; color: #b0b6bb; display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap; font-size: 13px; }
-      .jdsc-btn:hover { color: #ffffff; }
-      .jdsc-tags { display: flex; gap: 8px; align-items: center; }
-      .jdsc-tag { height: 24px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; font-size: 12px; flex: 1; justify-content: center; }
+      
+      .jdsc-modal { 
+        position: fixed; 
+        width: 460px; 
+        max-height: 75vh; 
+        background: #111316; 
+        color: #e6e9ec; 
+        border-radius: 12px; 
+        box-shadow: 0 24px 64px rgba(0,0,0,.5); 
+        overflow: hidden; 
+        z-index: 9999; 
+        display: flex; 
+        flex-direction: column; 
+        user-select: none; 
+        border: 1px solid #3a3f44;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      
+      .jdsc-header { 
+        display: flex; 
+        align-items: center; 
+        padding: 0 12px; 
+        height: 36px;
+        border-bottom: 1px solid #3a3f44; 
+        flex-shrink: 0; 
+        background: linear-gradient(135deg, #1a1d21 0%, #2a2e32 100%); 
+        position: relative;
+      }
+      .jdsc-header::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, #fa3d64, #ff7875);
+      }
+      .jdsc-modal-workflow .jdsc-header::before {
+        background: linear-gradient(90deg, #1677ff, #52c41a);
+      }
+      
+      .jdsc-title { font-size: 15px; font-weight: 600; flex: 1; letter-spacing: 0.5px; }
+      
+      .jdsc-close, .jdsc-lang { 
+        width: 24px; 
+        height: 24px; 
+        border-radius: 4px; 
+        background: rgba(255,255,255,0.05); 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        cursor: pointer; 
+        transition: all 0.2s;
+        color: #8a9199;
+        font-size: 12px;
+      }
+      .jdsc-close:hover { background: rgba(255, 77, 79, 0.1); color: #ff4d4f; }
+      .jdsc-lang:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+      .jdsc-lang { margin-right: 8px; }
+      
+      .jdsc-grid { display: flex; gap: 8px; width: 100%; box-sizing: border-box; }
+      .jdsc-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+      .jdsc-tabs { display: flex; gap: 4px; padding: 8px 12px 0 12px; background: #0d0f12; flex-shrink: 0; }
+      .jdsc-tab { 
+        flex: 1; 
+        text-align: center; 
+        padding: 6px 10px; 
+        border-radius: 6px 6px 0 0; 
+        cursor: pointer; 
+        background: transparent; 
+        color: #8a9199; 
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+      .jdsc-tab:hover { color: #e6e9ec; background: rgba(255,255,255,0.05); }
+      .jdsc-tab.active { 
+        background: #1a1d21; 
+        color: #fa3d64; 
+        font-weight: 600;
+        border: 1px solid #3a3f44;
+        border-bottom: none;
+      }
+      .jdsc-modal-workflow .jdsc-tab.active { color: #1677ff; }
+      
+      .jdsc-tagsbar { display: flex; gap: 6px; padding: 8px 12px; background: #1a1d21; border-bottom: 1px solid #3a3f44; flex-shrink: 0; }
+      .jdsc-tag { 
+        height: 24px; 
+        padding: 0 10px; 
+        border-radius: 4px; 
+        display: inline-flex; 
+        align-items: center; 
+        font-size: 11px; 
+        font-weight: 500;
+        flex: 1; 
+        justify-content: center; 
+        cursor: pointer;
+        transition: all 0.2s;
+        opacity: 0.6;
+      }
+      .jdsc-tag.active { opacity: 1; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
       .jdsc-tag.orange { background: #fa8c16; color: #fff; }
       .jdsc-tag.purple { background: #722ed1; color: #fff; }
-      .jdsc-tagsbar { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #2a2e32; width: 100%; box-sizing: border-box; flex-shrink: 0; }
-      .jdsc-grid { display: flex; gap: 8px; }
-      .jdsc-col { flex: 1; min-width: 0; }
+      
+      .jdsc-search { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #1a1d21; position: relative; flex-shrink: 0; }
+      .jdsc-search input { 
+        flex: 1; 
+        height: 28px; 
+        border-radius: 4px; 
+        border: 1px solid #3a3f44; 
+        background: #0d0f12; 
+        color: #e6e9ec; 
+        padding: 0 32px 0 10px; 
+        font-size: 12px;
+        transition: all 0.2s;
+      }
+      .jdsc-search input:focus { border-color: #fa3d64; outline: none; box-shadow: 0 0 0 2px rgba(250,61,100,0.2); }
+      .jdsc-modal-workflow .jdsc-search input:focus { border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,0.2); }
+      
+      .jdsc-clear { 
+        position: absolute; 
+        right: 24px; 
+        top: 50%; 
+        transform: translateY(-50%); 
+        width: 18px; 
+        height: 18px; 
+        border-radius: 50%; 
+        background: #4b5563; 
+        color: #fff; 
+        display: none; 
+        align-items: center; 
+        justify-content: center; 
+        font-size: 10px; 
+        cursor: pointer; 
+        transition: background 0.2s;
+      }
+      .jdsc-clear:hover { background: #fa3d64; }
+      
+      .jdsc-body { 
+        overflow-y: auto; 
+        padding: 4px 8px; 
+        flex: 1; 
+        background: #1a1d21;
+      }
+      .jdsc-body::-webkit-scrollbar { width: 8px; }
+      .jdsc-body::-webkit-scrollbar-track { background: transparent; }
+      .jdsc-body::-webkit-scrollbar-thumb { background: #3a3f44; border-radius: 4px; }
+      .jdsc-body::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+      
+      .jdsc-item { 
+        display: flex; 
+        gap: 8px; 
+        padding: 8px 10px; 
+        align-items: center; 
+        background: #2a2e32; 
+        border-radius: 6px; 
+        margin: 4px 0; 
+        border: 1px solid #3a3f44;
+        transition: all 0.2s;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+      .jdsc-item:hover { 
+        background: #333a40; 
+        border-color: #4a5159; 
+        transform: translateY(-1px); 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2); 
+      }
+      
+      .jdsc-drag-handle { 
+        width: 20px; 
+        height: 20px; 
+        border-radius: 4px; 
+        background: rgba(255,255,255,0.05); 
+        color: #8a9199; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        cursor: grab; 
+        font-size: 12px; 
+        transition: all 0.2s;
+      }
+      .jdsc-drag-handle:hover { background: rgba(255,255,255,0.1); color: #fff; }
+      
+      .jdsc-name { font-size: 15px; font-weight: 600; color: #e6e9ec; margin-bottom: 1px; }
+      .jdsc-sub { font-size: 10px; color: #8a9199; font-family: monospace; }
+      .jdsc-desc { font-size: 11px; color: #8a9199; margin-top: 2px; line-height: 1.3; }
+      .jdsc-tertiary { font-size: 9px; color: #8a9199; margin-top: 1px; }
+      
+      .jdsc-heart { 
+        width: 20px; 
+        height: 20px; 
+        border-radius: 4px; 
+        background: rgba(255,255,255,0.05); 
+        color: #8a9199; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        cursor: pointer; 
+        font-size: 12px; 
+        transition: all 0.2s;
+      }
+      .jdsc-heart:hover { background: rgba(255,255,255,0.1); color: #fff; }
+      .jdsc-heart.active { background: rgba(250,61,100,0.1); color: #fa3d64; }
+      .jdsc-heart.active:hover { background: rgba(250,61,100,0.2); }
+      
+      .jdsc-footer { 
+        display: flex; 
+        gap: 8px; 
+        padding: 8px 12px; 
+        border-top: 1px solid #3a3f44; 
+        align-items: center; 
+        justify-content: space-between; 
+        flex-shrink: 0; 
+        background: #1a1d21;
+      }
+      .jdsc-btn { 
+        height: 28px; 
+        padding: 0 12px; 
+        border-radius: 4px; 
+        background: #2a2e32; 
+        color: #b7bcc2; 
+        display: inline-flex; 
+        align-items: center; 
+        cursor: pointer; 
+        font-size: 12px; 
+        font-weight: 500;
+        border: 1px solid #3a3f44;
+        transition: all 0.2s;
+      }
+      .jdsc-btn:hover { background: #3a3f44; color: #fff; border-color: #4a5159; }
+      
+      /* 右键菜单样式 */
+      .jdsc-context-menu {
+        position: fixed;
+        background: #1c1f22;
+        border: 1px solid #3a3f44;
+        border-radius: 8px;
+        padding: 4px 0;
+        z-index: 10001;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        min-width: 140px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .jdsc-menu-item {
+        padding: 8px 16px;
+        color: #e6e9ec;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .jdsc-menu-item:hover {
+        background: #1677ff;
+        color: #fff;
+      }
+      .jdsc-menu-item.danger:hover {
+        background: #ff4d4f;
+      }
+      
+      /* 拖动排序样式 */
+      .jdsc-noselect {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+      }
+      .jdsc-drag-ghost {
+        position: fixed;
+        background: #1c1f22;
+        border: 2px solid #1677ff;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        pointer-events: none;
+        z-index: 10002;
+        opacity: 0.9;
+      }
+      .jdsc-drag-placeholder {
+        background: rgba(22, 119, 255, 0.1);
+        border: 2px dashed #1677ff;
+        border-radius: 8px;
+        margin: 4px 0;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -797,11 +1040,11 @@
     header.appendChild(close);
     const tabs = createEl("div", "jdsc-tabs");
     const tabSearch = createEl("div", "jdsc-tab", t("tab_search"));
-    const tabFav = createEl("div", "jdsc-tab", t("tab_fav"));
+    const tabFav = createEl("div", "jdsc-tab active", t("tab_fav"));
     tabs.appendChild(tabSearch);
     tabs.appendChild(tabFav);
     const tagsbar = createEl("div", "jdsc-tagsbar");
-    const tagNodes = createEl("div", "jdsc-tag orange", t("tag_nodes"));
+    const tagNodes = createEl("div", "jdsc-tag orange active", t("tag_nodes"));
     const tagFrags = createEl("div", "jdsc-tag purple", t("tag_frags"));
     tagsbar.appendChild(tagNodes);
     tagsbar.appendChild(tagFrags);
@@ -865,8 +1108,17 @@
       if (!mDown) return; mDown = false; save(KEY_MODAL_POS, { x: modal.offsetLeft, y: modal.offsetTop }); try { updateGlobalModalAnchor(); } catch { }
     });
 
+    // 标题栏右键关闭对话框
+    header.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        modal.remove();
+      } catch { }
+    });
+
     let mode = "fav";
-    let favFilter = "all";
+    let favFilter = "nodes";
     let refreshing = false;
 
     function addGroupToCanvas(group) {
@@ -996,6 +1248,79 @@
         else if (favFilter === "nodes") { [leftList, rightList] = splitList(nodesShown); }
         else { leftList = nodesShown; rightList = fragsShown; }
 
+        function showContextMenu(e, it) {
+          const menu = createEl("div", "jdsc-context-menu");
+          menu.style.left = `${e.clientX}px`;
+          menu.style.top = `${e.clientY}px`;
+
+          const createMenuItem = (text, icon, onClick, className = "") => {
+            const div = createEl("div", "jdsc-menu-item " + className);
+            div.innerHTML = `<span>${icon}</span><span>${text}</span>`;
+            div.onclick = (ev) => {
+              ev.stopPropagation();
+              onClick();
+              menu.remove();
+            };
+            return div;
+          };
+
+          // 重命名
+          menu.appendChild(createMenuItem(t("rename_fav"), "📝", () => {
+            if (it.type.startsWith("__group__")) {
+              const groups2 = getGroups();
+              const id = it.type.split(":")[1];
+              const g = groups2.find(x => x.id === id);
+              if (!g) return;
+              const nn = prompt(t("rename_group"), g.name);
+              if (nn) { g.name = nn; save(KEY_GROUPS, groups2); refresh(); }
+            } else if (it.type.startsWith("__frag__")) {
+              const frags2 = getFrags();
+              const id = it.type.split(":")[1];
+              const f = frags2.find(x => x.id === id);
+              if (!f) return;
+              const nn = prompt(t("rename_frag"), f.name);
+              if (nn) { f.name = nn; save(KEY_FRAGS, frags2); refresh(); }
+            } else {
+              const favs2 = getFavs();
+              const cur = favs2[it.type]?.name || it.name;
+              const nn = prompt(t("rename_fav"), cur);
+              if (nn) {
+                if (!favs2[it.type]) favs2[it.type] = { name: it.name, orig: it.name };
+                favs2[it.type].name = nn; save(KEY_FAVS, favs2); refresh();
+              }
+            }
+          }));
+
+          // 取消收藏
+          menu.appendChild(createMenuItem("取消收藏", "💔", () => {
+            if (it.type.startsWith("__group__")) {
+              if (confirm(t("confirm_unfav_group"))) {
+                const groups2 = getGroups();
+                const id = it.type.split(":")[1];
+                const idx = groups2.findIndex(x => x.id === id);
+                if (idx >= 0) { groups2.splice(idx, 1); save(KEY_GROUPS, groups2); refresh(); }
+              }
+            } else if (it.type.startsWith("__frag__")) {
+              if (confirm(t("confirm_unfav_frag"))) {
+                const frags2 = getFrags();
+                const id = it.type.split(":")[1];
+                const idx = frags2.findIndex(x => x.id === id);
+                if (idx >= 0) { frags2.splice(idx, 1); save(KEY_FRAGS, frags2); refresh(); }
+              }
+            } else {
+              if (confirm(t("confirm_unfav_node"))) {
+                const favs2 = getFavs();
+                delete favs2[it.type];
+                save(KEY_FAVS, favs2); refresh();
+              }
+            }
+          }, "danger"));
+
+          document.body.appendChild(menu);
+          const onDocClick = () => { menu.remove(); document.removeEventListener("click", onDocClick); };
+          setTimeout(() => document.addEventListener("click", onDocClick), 10);
+        }
+
         function renderFavItem(target, it, listKind) {
           const row = createEl("div", "jdsc-item");
           // 拖拽排序把手（按住上下拖动）
@@ -1042,30 +1367,8 @@
           }
           row.addEventListener("contextmenu", (e) => {
             e.preventDefault();
-            if (it.type.startsWith("__group__")) {
-              const groups2 = getGroups();
-              const id = it.type.split(":")[1];
-              const g = groups2.find(x => x.id === id);
-              if (!g) return;
-              const nn = prompt(t("rename_group"), g.name);
-              if (!nn) return;
-              g.name = nn; save(KEY_GROUPS, groups2); refresh();
-            } else if (it.type.startsWith("__frag__")) {
-              const frags2 = getFrags();
-              const id = it.type.split(":")[1];
-              const f = frags2.find(x => x.id === id);
-              if (!f) return;
-              const nn = prompt(t("rename_frag"), f.name);
-              if (!nn) return;
-              f.name = nn; save(KEY_FRAGS, frags2); refresh();
-            } else {
-              const favs2 = getFavs();
-              const cur = favs2[it.type]?.name || it.name;
-              const nn = prompt(t("rename_fav"), cur);
-              if (!nn) return;
-              if (!favs2[it.type]) favs2[it.type] = { name: it.name, orig: it.orig || it.name };
-              favs2[it.type].name = nn; save(KEY_FAVS, favs2); refresh();
-            }
+            e.stopPropagation();
+            showContextMenu(e, it);
           });
           // 标注行类型与键，便于计算排序
           row.dataset.kind = (it.type.startsWith('__frag__') ? 'frag' : (it.type.startsWith('__group__') ? 'group' : 'node'));
@@ -1107,6 +1410,7 @@
             rects.forEach((ent, idx) => { const d = Math.abs(curY - ent.mid); if (d < best) { best = d; nearestIdx = idx; } });
             const fromIdx = rows.indexOf(row);
             if (fromIdx < 0 || nearestIdx === fromIdx) return;
+
             if (kind === 'node') {
               try {
                 const favs2 = getFavs(); const types = Object.keys(favs2);
@@ -1116,7 +1420,6 @@
                 const typeKey = row.dataset.key; const targetKey = displayKeys[nearestIdx];
                 const iGlobal = order.indexOf(typeKey); const jGlobal = order.indexOf(targetKey);
                 if (iGlobal < 0 || jGlobal < 0) return;
-                // 计算插入位置：向下拖则插到目标后一位，向上拖则插到目标前一位
                 const insertPos = (nearestIdx > fromIdx) ? (jGlobal + 1) : jGlobal;
                 const cur = order.splice(iGlobal, 1)[0]; order.splice(insertPos > iGlobal ? insertPos - 1 : insertPos, 0, cur);
                 save('jdsc:fav_order_nodes', order); refresh();
@@ -1149,27 +1452,8 @@
             window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
           });
           // append handled above
-          const heart = createEl("div", "jdsc-heart active", "❤");
-          heart.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (it.type.startsWith("__group__")) {
-              const id = it.type.split(":")[1];
-              const groups2 = getGroups();
-              const idx = groups2.findIndex(x => x.id === id);
-              if (idx >= 0 && confirm(t("confirm_unfav_group"))) { groups2.splice(idx, 1); save(KEY_GROUPS, groups2); refresh(); }
-            } else if (it.type.startsWith("__frag__")) {
-              const id = it.type.split(":")[1];
-              const frags2 = getFrags();
-              const idx = frags2.findIndex(x => x.id === id);
-              if (idx >= 0 && confirm(t("confirm_unfav_frag"))) { frags2.splice(idx, 1); save(KEY_FRAGS, frags2); refresh(); }
-            } else {
-              const favs2 = getFavs();
-              if (favs2[it.type] && confirm(t("confirm_unfav_node"))) { delete favs2[it.type]; save(KEY_FAVS, favs2); refresh(); }
-            }
-          });
           row.appendChild(handle);
           row.appendChild(main);
-          row.appendChild(heart);
           target.appendChild(row);
         }
 
@@ -1265,8 +1549,8 @@
       debounceId = setTimeout(refresh, 180);
     });
     clearBtn.addEventListener("click", () => { input.value = ""; clearBtn.style.display = "none"; refresh(); });
-    tabFav.addEventListener("click", () => { mode = "fav"; favFilter = "all"; refresh(); });
-    tabSearch.addEventListener("click", () => { mode = "search"; refresh(); });
+    tabFav.addEventListener("mouseenter", () => { mode = "fav"; favFilter = "all"; refresh(); });
+    tabSearch.addEventListener("mouseenter", () => { mode = "search"; refresh(); });
     lang.addEventListener("click", () => { const cur = getLang(); localStorage.setItem(KEY_LANG, cur === "en" ? "zh" : "en"); title.textContent = t("title"); tabSearch.textContent = t("tab_search"); tabFav.textContent = t("tab_fav"); tagNodes.textContent = t("tag_nodes"); tagFrags.textContent = t("tag_frags"); btnHotkey.textContent = t("btn_hotkey"); btnSaveNode.textContent = t("btn_save_node"); btnSaveFrag.textContent = t("btn_save_frag"); input.placeholder = mode === "fav" ? t("ph_fav") : t("ph_search"); refresh(); });
 
     tagNodes.addEventListener("click", () => { favFilter = (favFilter === "nodes" ? "all" : "nodes"); refresh(); });
@@ -1306,8 +1590,7 @@
       alert(`${t("set_hotkey_done")}${disp}`);
     });
 
-
-    tabFav.click();
+    refresh();
   }
 
   function setup(app) {
@@ -1322,10 +1605,7 @@
     };
     const toggleWorkflow = () => {
       try {
-        const existing = Array.from(document.querySelectorAll(".jdsc-modal")).find(el => {
-          const title = el.querySelector(".jdsc-title");
-          return title && title.textContent === "工作流+";
-        });
+        const existing = document.querySelector(".jdsc-wf-modal");
         if (existing) {
           existing.remove();
         } else {

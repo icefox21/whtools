@@ -112,11 +112,210 @@
         }
     }
 
+    // 注入 CSS 样式
+    function ensureTextFavsStyles() {
+        if (document.getElementById("jdsc-text-favs-styles")) return;
+        const style = document.createElement("style");
+        style.id = "jdsc-text-favs-styles";
+        style.textContent = `
+            .jdsc-tf-modal {
+                position: absolute;
+                background: #111316;
+                border: 1px solid #3a3f44;
+                border-radius: 12px;
+                z-index: 1000;
+                box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                user-select: none;
+            }
+            .jdsc-tf-header {
+                display: flex;
+                align-items: center;
+                padding: 0 16px;
+                height: 48px;
+                background: linear-gradient(135deg, #1a1d21 0%, #2a2e32 100%);
+                border-bottom: 1px solid #3a3f44;
+                cursor: move;
+                flex-shrink: 0;
+                position: relative;
+            }
+            .jdsc-tf-header::before {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 2px;
+                background: linear-gradient(90deg, #1677ff, #52c41a);
+            }
+            .jdsc-tf-title {
+                color: #e6e9ec;
+                font-size: 15px;
+                font-weight: 600;
+                flex: 1;
+                letter-spacing: 0.5px;
+            }
+            .jdsc-tf-close {
+                color: #8a9199;
+                font-size: 20px;
+                cursor: pointer;
+                width: 28px;
+                height: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 6px;
+                transition: all 0.2s;
+            }
+            .jdsc-tf-close:hover {
+                background: rgba(255, 77, 79, 0.1);
+                color: #ff4d4f;
+            }
+            .jdsc-tf-body-container {
+                display: flex;
+                flex: 1;
+                overflow: hidden;
+                background: #1a1d21;
+            }
+            .jdsc-tf-sidebar {
+                width: 140px;
+                background: #1a1d21;
+                border-right: 1px solid #3a3f44;
+                display: flex;
+                flex-direction: column;
+                padding: 12px 0;
+                overflow-y: auto;
+                flex-shrink: 0;
+            }
+            .jdsc-tf-sidebar::-webkit-scrollbar { width: 4px; }
+            .jdsc-tf-sidebar::-webkit-scrollbar-thumb { background: #3a3f44; border-radius: 2px; }
+            
+            .jdsc-tf-cat-item {
+                padding: 10px 16px;
+                cursor: pointer;
+                color: #8a9199;
+                font-size: 13px;
+                font-weight: 500;
+                transition: all 0.2s;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                margin: 2px 8px;
+                border-radius: 6px;
+            }
+            .jdsc-tf-cat-item:hover {
+                background: rgba(255, 255, 255, 0.05);
+                color: #e6e9ec;
+            }
+            .jdsc-tf-cat-item.active {
+                background: rgba(22, 119, 255, 0.1);
+                color: #1677ff;
+                font-weight: 600;
+            }
+            .jdsc-tf-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+                grid-auto-rows: min-content;
+                gap: 12px;
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+                align-content: start;
+            }
+            .jdsc-tf-grid::-webkit-scrollbar { width: 8px; }
+            .jdsc-tf-grid::-webkit-scrollbar-track { background: transparent; }
+            .jdsc-tf-grid::-webkit-scrollbar-thumb { background: #3a3f44; border-radius: 4px; }
+            .jdsc-tf-grid::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+            .jdsc-tf-card {
+                background: #2a2e32;
+                color: #e6e9ec;
+                padding: 12px;
+                border-radius: 8px;
+                cursor: pointer;
+                text-align: center;
+                transition: all 0.2s;
+                border: 1px solid #3a3f44;
+                word-wrap: break-word;
+                font-size: 13px;
+                min-height: 48px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .jdsc-tf-card:hover {
+                background: #333a40;
+                border-color: #4a5159;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            }
+            .jdsc-tf-card.nsfw { border-bottom: 3px solid #ff4d4f; }
+            .jdsc-tf-card.sfw { border-bottom: 3px solid #1677ff; }
+            
+            .jdsc-tf-empty {
+                padding: 60px 20px;
+                text-align: center;
+                color: #6b7280;
+                font-size: 14px;
+                grid-column: 1 / -1;
+            }
+            .jdsc-tf-context-menu {
+                position: fixed;
+                background: #1c1f22;
+                border: 1px solid #3a3f44;
+                border-radius: 8px;
+                padding: 4px;
+                z-index: 10001;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+                min-width: 140px;
+            }
+            .jdsc-tf-menu-item {
+                padding: 8px 12px;
+                color: #b7bcc2;
+                cursor: pointer;
+                font-size: 13px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-radius: 4px;
+                transition: all 0.2s;
+            }
+            .jdsc-tf-menu-item:hover {
+                background: rgba(255, 255, 255, 0.05);
+                color: #fff;
+            }
+            .jdsc-tf-menu-item.delete { color: #ff4d4f; }
+            .jdsc-tf-menu-item.delete:hover { background: rgba(255, 77, 79, 0.1); }
+            
+            .jdsc-tf-submenu {
+                position: absolute;
+                left: 100%;
+                top: -4px;
+                background: #1c1f22;
+                border: 1px solid #3a3f44;
+                border-radius: 8px;
+                padding: 4px;
+                z-index: 10002;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+                min-width: 140px;
+                max-height: 300px;
+                overflow-y: auto;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     // 创建可拖动函数
     function makeDraggable(el, handle) {
         let sx = 0, sy = 0, ex = 0, ey = 0, drag = false, moved = false;
 
         const onDown = e => {
+            if (e.target.closest('.jdsc-tf-close')) return; // 点击关闭按钮不触发拖拽
             drag = true;
             moved = false;
             sx = e.clientX;
@@ -162,6 +361,7 @@
 
     // 打开文本收藏对话框
     function openTextFavsModal(node) {
+        ensureTextFavsStyles();
         const favs = getTextFavs();
         let currentCategory = getLastCategory();
 
@@ -174,23 +374,9 @@
         // 创建对话框
         const modal = document.createElement('div');
         modal.id = 'jdsc-text-favs-modal';
-        modal.style.cssText = `
-            position: absolute;
-            background: #1e1e1e;
-            border: 2px solid #444;
-            border-radius: 8px;
-            width: 600px;
-            height: 400px;
-            z-index: 1000;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-            resize: both;
-            overflow: hidden;
-            font-family: sans-serif;
-            width: 800px;
-            height: 550px;
-        `;
+        modal.className = 'jdsc-tf-modal';
+        modal.style.width = '800px';
+        modal.style.height = '550px';
 
         // 计算位置 (保持原有逻辑)
         const modalWidth = 800;
@@ -225,30 +411,16 @@
 
         // ---------------- 标题栏 ----------------
         const header = document.createElement('div');
-        header.style.cssText = `
-            display: flex;
-            align-items: center;
-            padding: 10px 15px;
-            background: #2a2a2a;
-            border-bottom: 1px solid #444;
-            cursor: move;
-            user-select: none;
-            flex-shrink: 0;
-        `;
-
-        const handle = document.createElement('div');
-        handle.textContent = '⋮⋮';
-        handle.style.cssText = 'color: #888; font-size: 16px; margin-right: 10px; cursor: move;';
-        header.appendChild(handle);
+        header.className = 'jdsc-tf-header';
 
         const title = document.createElement('div');
-        title.textContent = '文本收藏';
-        title.style.cssText = 'color: #fff; font-size: 16px; font-weight: bold; flex: 1;';
+        title.className = 'jdsc-tf-title';
+        title.textContent = '文本收藏夹';
         header.appendChild(title);
 
         const closeBtn = document.createElement('div');
-        closeBtn.textContent = '×';
-        closeBtn.style.cssText = 'color: #fff; font-size: 24px; cursor: pointer; padding: 0 5px;';
+        closeBtn.className = 'jdsc-tf-close';
+        closeBtn.innerHTML = '×';
         closeBtn.addEventListener('click', () => document.body.removeChild(modal));
         header.appendChild(closeBtn);
 
@@ -256,24 +428,11 @@
 
         // ---------------- 主体内容区 (侧边栏 + 网格) ----------------
         const bodyContainer = document.createElement('div');
-        bodyContainer.style.cssText = `
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        `;
+        bodyContainer.className = 'jdsc-tf-body-container';
 
         // --- 左侧边栏 (分类) ---
         const sidebar = document.createElement('div');
-        sidebar.style.cssText = `
-            width: 120px;
-            background: #252525;
-            border-right: 1px solid #444;
-            display: flex;
-            flex-direction: column;
-            padding: 10px 0;
-            overflow-y: auto;
-            flex-shrink: 0;
-        `;
+        sidebar.className = 'jdsc-tf-sidebar';
 
         // 渲染分类列表
         function renderCategories() {
@@ -293,26 +452,7 @@
                 const catItem = document.createElement('div');
                 catItem.textContent = cat;
                 const isActive = cat === currentCategory;
-
-                catItem.style.cssText = `
-                    padding: 8px 15px;
-                    cursor: pointer;
-                    color: ${isActive ? '#fff' : '#aaa'};
-                    background: ${isActive ? '#3a3a3a' : 'transparent'};
-                    border-left: 3px solid ${isActive ? '#2196F3' : 'transparent'};
-                    font-size: 13px;
-                    transition: all 0.2s;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                `;
-
-                catItem.addEventListener('mouseenter', () => {
-                    if (cat !== currentCategory) catItem.style.background = '#2d2d2d';
-                });
-                catItem.addEventListener('mouseleave', () => {
-                    if (cat !== currentCategory) catItem.style.background = 'transparent';
-                });
+                catItem.className = `jdsc-tf-cat-item${isActive ? ' active' : ''}`;
 
                 catItem.addEventListener('click', () => {
                     currentCategory = cat;
@@ -327,16 +467,7 @@
 
         // --- 右侧网格 (收藏项) ---
         const grid = document.createElement('div');
-        grid.style.cssText = `
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-            grid-auto-rows: min-content;
-            gap: 8px;
-            flex: 1;
-            overflow-y: auto;
-            padding: 15px;
-            align-content: start;
-        `;
+        grid.className = 'jdsc-tf-grid';
 
         // 渲染网格内容
         function renderGrid() {
@@ -363,41 +494,14 @@
                 const card = document.createElement('div');
                 card.textContent = name;
                 card.title = item.content; // 悬停显示完整内容
-                card.style.cssText = `
-                    background: #2d2d2d;
-                    color: #ddd;
-                    padding: 8px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    text-align: center;
-                    transition: all 0.2s;
-                    border: 1px solid #444;
-                    word-wrap: break-word;
-                    user-select: none;
-                    font-size: 13px;
-                    min-height: 40px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    position: relative;
-                `;
+                card.className = 'jdsc-tf-card';
 
                 // 分类样式提示
                 if (itemCat === "NSFW") {
-                    card.style.borderLeft = "3px solid #ff4444"; // 红色
+                    card.classList.add('nsfw');
                 } else if (itemCat === "SFW") {
-                    card.style.borderLeft = "3px solid #4488ff"; // 蓝色
+                    card.classList.add('sfw');
                 }
-
-                card.addEventListener('mouseenter', () => {
-                    card.style.background = '#3a3a3a';
-                    card.style.borderColor = '#666';
-                });
-
-                card.addEventListener('mouseleave', () => {
-                    card.style.background = '#2d2d2d';
-                    card.style.borderColor = '#444';
-                });
 
                 // 点击应用
                 card.addEventListener('click', () => {
@@ -411,8 +515,9 @@
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
 
                     // 闪烁效果反馈
-                    card.style.background = '#4CAF50';
-                    setTimeout(() => card.style.background = '#2d2d2d', 200);
+                    const oldBg = card.style.background;
+                    card.style.background = '#52c41a';
+                    setTimeout(() => card.style.background = '', 200);
                 });
 
                 // 右键菜单
@@ -427,8 +532,8 @@
 
             if (count === 0) {
                 const emptyTip = document.createElement('div');
+                emptyTip.className = 'jdsc-tf-empty';
                 emptyTip.textContent = '此分类下暂无收藏';
-                emptyTip.style.cssText = 'color: #666; text-align: center; width: 100%; padding-top: 50px; grid-column: 1 / -1;';
                 grid.appendChild(emptyTip);
             }
         }
@@ -436,32 +541,14 @@
         // 显示右键菜单
         function showContextMenu(e, name, item) {
             const menu = document.createElement('div');
-            menu.style.cssText = `
-                position: fixed;
-                left: ${e.clientX}px;
-                top: ${e.clientY}px;
-                background: #2b2b2b;
-                border: 1px solid #555;
-                border-radius: 4px;
-                padding: 4px 0;
-                z-index: 10001;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-                min-width: 120px;
-            `;
+            menu.className = 'jdsc-tf-context-menu';
+            menu.style.left = `${e.clientX}px`;
+            menu.style.top = `${e.clientY}px`;
 
-            const createMenuItem = (text, onClick, hasSubmenu = false) => {
+            const createMenuItem = (text, onClick, className = '') => {
                 const div = document.createElement('div');
+                div.className = `jdsc-tf-menu-item ${className}`;
                 div.textContent = text;
-                div.style.cssText = `
-                    padding: 6px 15px;
-                    color: #fff;
-                    cursor: pointer;
-                    font-size: 13px;
-                    display: flex;
-                    justify-content: space-between;
-                `;
-                div.addEventListener('mouseenter', () => div.style.background = '#3a3a3a');
-                div.addEventListener('mouseleave', () => div.style.background = 'transparent');
                 if (onClick) div.addEventListener('click', (ev) => {
                     ev.stopPropagation();
                     onClick();
@@ -494,24 +581,13 @@
 
             // 移动到分类 (悬停显示子菜单)
             const moveItem = document.createElement('div');
-            moveItem.innerHTML = '📂 移动到... <span style="fontSize: 10px; color: #888; marginLeft: 10px;">▶</span>';
-            moveItem.style.cssText = `
-                padding: 6px 15px;
-                color: #fff;
-                cursor: pointer;
-                font-size: 13px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                position: relative;
-            `;
+            moveItem.className = 'jdsc-tf-menu-item';
+            moveItem.innerHTML = '📂 移动到... <span style="font-size: 10px; color: #888; margin-left: 10px;">▶</span>';
 
             let submenu = null;
             let submenuTimeout = null;
 
             moveItem.addEventListener('mouseenter', () => {
-                moveItem.style.background = '#3a3a3a';
-
                 // 清除可能的延迟关闭
                 if (submenuTimeout) {
                     clearTimeout(submenuTimeout);
@@ -523,20 +599,7 @@
 
                 // 创建子菜单
                 submenu = document.createElement('div');
-                submenu.style.cssText = `
-                    position: absolute;
-                    left: 100%;
-                    top: 0;
-                    background: #2b2b2b;
-                    border: 1px solid #555;
-                    border-radius: 4px;
-                    padding: 4px 0;
-                    z-index: 10002;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-                    min-width: 140px;
-                    max-height: 300px;
-                    overflow-y: auto;
-                `;
+                submenu.className = 'jdsc-tf-submenu';
 
                 // 收集所有分类
                 const usedCategories = new Set();
@@ -559,18 +622,10 @@
                 // 添加分类选项
                 sortedCats.forEach(cat => {
                     const catDiv = document.createElement('div');
+                    catDiv.className = 'jdsc-tf-menu-item';
                     const isCurrent = cat === (item.category || "SFW");
                     catDiv.textContent = isCurrent ? '✓ ' + cat : cat;
-                    catDiv.style.cssText = `
-                        padding: 6px 15px;
-                        cursor: pointer;
-                        font-size: 13px;
-                        color: ${isCurrent ? '#4CAF50' : '#ddd'};
-                        white-space: nowrap;
-                    `;
-
-                    catDiv.addEventListener('mouseenter', () => catDiv.style.background = '#3a3a3a');
-                    catDiv.addEventListener('mouseleave', () => catDiv.style.background = 'transparent');
+                    if (isCurrent) catDiv.style.color = '#52c41a';
 
                     catDiv.addEventListener('click', (ev) => {
                         ev.stopPropagation();
@@ -587,20 +642,14 @@
 
                 // 分隔线
                 const divider = document.createElement('div');
-                divider.style.cssText = 'height: 1px; background: #444; margin: 4px 0;';
+                divider.style.cssText = 'height: 1px; background: #3a3f44; margin: 4px 8px;';
                 submenu.appendChild(divider);
 
                 // 新建分类
                 const newCatDiv = document.createElement('div');
+                newCatDiv.className = 'jdsc-tf-menu-item';
                 newCatDiv.textContent = '+ 新建分类...';
-                newCatDiv.style.cssText = `
-                    padding: 6px 15px;
-                    color: #81D4FA;
-                    cursor: pointer;
-                    font-size: 13px;
-                `;
-                newCatDiv.addEventListener('mouseenter', () => newCatDiv.style.background = '#3a3a3a');
-                newCatDiv.addEventListener('mouseleave', () => newCatDiv.style.background = 'transparent');
+                newCatDiv.style.color = '#1677ff';
                 newCatDiv.addEventListener('click', (ev) => {
                     ev.stopPropagation();
                     const newCat = prompt("请输入新分类名称:");
@@ -640,7 +689,6 @@
             });
 
             moveItem.addEventListener('mouseleave', () => {
-                moveItem.style.background = 'transparent';
                 submenuTimeout = setTimeout(() => {
                     if (submenu && submenu.parentNode) {
                         submenu.parentNode.removeChild(submenu);
@@ -658,8 +706,7 @@
                     renderCategories();
                     renderGrid();
                 }
-            });
-            deleteItem.style.color = '#ff6b6b';
+            }, 'delete');
             menu.appendChild(deleteItem);
 
             document.body.appendChild(menu);
