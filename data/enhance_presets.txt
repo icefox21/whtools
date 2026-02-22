@@ -29,11 +29,13 @@ natural facial proportions
 delicate facial features, clear eyes with catchlight
 
 [构图与姿态稳定（避免 LoRA 乱带结构）]
-well-balanced composition
-natural human pose
-anatomically correct limbs
-stable body proportions
-clean silhouette, no visual clutter
+((perfect anatomy:1.9))
+((only two legs:1.9))
+((anatomically correct:1.9))
+no extra limbs no duplicated legs
+no mutated legs
+((only two arms:1.9))
+
 
 [摄影质感（让它“像照片”而不是“AI图”）]
 professional portrait photography
@@ -52,6 +54,19 @@ anatomically correct proportions
 natural human pose, stable limbs
 professional portrait photography, film-like color grading
 soft background blur, clean and elegant composition
+
+[Pussy「pussy」]
+高度详细的逼真解剖结构
+可见的毛孔,
+微妙的肌肉张力, 
+湿褶上的自然阴影和亮点, 
+照片级逼真, 
+超精细,
+8k
+small pussy, 
+minimal labia
+Innie Pussy
+对阴部和肛门进行锐利的聚焦.
 
 
 

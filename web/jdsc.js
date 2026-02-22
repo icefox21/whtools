@@ -1609,15 +1609,24 @@
         if (existing) {
           existing.remove();
         } else {
-          if (window.__jdsc_createWorkflowModal) {
+          // 直接调用,workflow.js会在页面加载时注册该函数
+          if (typeof window.__jdsc_createWorkflowModal === 'function') {
             window.__jdsc_createWorkflowModal(toggleWorkflow);
           } else {
-            alert("工作流+面板加载失败，请刷新页面重试");
+            // workflow.js可能还未加载完成,延迟尝试
+            console.warn('[whtools] workflow.js尚未加载,延迟100ms后重试...');
+            setTimeout(() => {
+              if (typeof window.__jdsc_createWorkflowModal === 'function') {
+                window.__jdsc_createWorkflowModal(toggleWorkflow);
+              } else {
+                alert("工作流+面板加载失败,请刷新页面重试");
+              }
+            }, 100);
           }
         }
       } catch (e) {
         console.error("工作流+面板打开失败:", e);
-        alert("工作流+面板打开失败，请刷新页面重试");
+        alert("工作流+面板打开失败,请刷新页面重试");
       }
     };
     window.__jdsc_toggleWorkflow = toggleWorkflow;
