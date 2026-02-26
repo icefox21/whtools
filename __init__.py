@@ -247,6 +247,7 @@ class WuhuoTextGate:
             "required": {
                 "enable_edit": ("BOOLEAN", {"default": False}),
                 "free_pass": ("BOOLEAN", {"default": True}),
+                "random_sfw": ("BOOLEAN", {"default": False}),
             },
             "optional": {
                 "in_text": ("STRING", {"forceInput": True}),
@@ -268,7 +269,7 @@ class WuhuoTextGate:
     def __init__(self):
         self._captured_text = None
         
-    def run(self, enable_edit, free_pass, in_text=None, key_word=None, edit_text=None, enhance_mode=None, node_id=None):
+    def run(self, enable_edit, free_pass, random_sfw, in_text=None, key_word=None, edit_text=None, enhance_mode=None, node_id=None):
         if in_text is None:
             in_text = ""
         elif not isinstance(in_text, str):
@@ -306,6 +307,39 @@ class WuhuoTextGate:
                     user_prefix = user_prefix + "," + enhance_text.strip()
                 else:
                     user_prefix = enhance_text.strip()
+
+        import random
+        import json
+        
+        # 处理随机 SFW 抽取逻辑
+        if random_sfw:
+            sfw_text = ""
+            try:
+                # 直接获取收藏文件路径
+                favs_path = os.path.join(DATA_DIRECTORY, "text_favorites.json")
+                if os.path.exists(favs_path):
+                    with open(favs_path, "r", encoding="utf-8") as f:
+                        favs_data = json.load(f)
+                    # 筛选分类为 SFW 的提示词
+                    sfw_items = [v["content"] for k, v in favs_data.items() if isinstance(v, dict) and v.get("category") == "SFW" and v.get("content")]
+                    if sfw_items:
+                        sfw_text = random.choice(sfw_items)
+            except Exception as e:
+                print(f"[whtools] 随机抽取SFW失败: {e}")
+            
+            final_out = sfw_text
+            if user_prefix:
+                final_out = (user_prefix + "," + final_out) if final_out else user_prefix
+            
+            # 告诉前端保持继续状态，并更新提示词框内容
+            try:
+                if PromptServer is not None:
+                    PromptServer.instance.send_sync("jdsc.textgate.update_text", {"node": node_id, "text": sfw_text})
+                    PromptServer.instance.send_sync("jdsc.textgate.status", {"node": node_id, "passing": True, "received": received, "manual": True, "free": bool(free_pass), "edit": bool(enable_edit)})
+            except Exception:
+                pass
+                
+            return (final_out,)
 
         if free_pass:
             # Free pass mode - 直通模式

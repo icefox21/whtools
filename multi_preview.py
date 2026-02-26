@@ -24,10 +24,13 @@ class WuhuoMultiPreview:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {},
+            "required": {
+                "enable_images": ("BOOLEAN", {"default": True, "label_on": "images 开", "label_off": "images 关"}),
+                "enable_images_opt": ("BOOLEAN", {"default": True, "label_on": "images_opt 开", "label_off": "images_opt 关"}),
+            },
             "optional": {
-                "images": ("IMAGE",),  # 接收图片输入（可选）
-                "images_opt": ("IMAGE",),  # 接收第二组图片输入（可选）
+                "images": ("IMAGE", {"lazy": True}),
+                "images_opt": ("IMAGE", {"lazy": True}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -41,7 +44,24 @@ class WuhuoMultiPreview:
     OUTPUT_NODE = True
     CATEGORY = "wuhuo"
 
-    def run(self, images=None, images_opt=None, prompt=None, extra_pnginfo=None, node_id=None):
+    def check_lazy_status(self, enable_images, enable_images_opt, images=None, images_opt=None, prompt=None, node_id=None, **kwargs):
+        """根据开关状态和实际连线情况决定是否请求输入"""
+        needed = []
+        
+        # 获取当前节点实际连接的输入名称列表
+        connected_inputs = []
+        if prompt and node_id and str(node_id) in prompt:
+            connected_inputs = prompt[str(node_id)].get("inputs", {})
+            
+        # 如果开关打开，并且该接口确定有连线，再去请求 lazy 评估
+        if enable_images and "images" in connected_inputs and images is None:
+            needed.append("images")
+        if enable_images_opt and "images_opt" in connected_inputs and images_opt is None:
+            needed.append("images_opt")
+            
+        return needed
+
+    def run(self, enable_images=True, enable_images_opt=True, images=None, images_opt=None, prompt=None, extra_pnginfo=None, node_id=None):
         """
         节点主逻辑：保存图片到历史记录，并原样输出
         """

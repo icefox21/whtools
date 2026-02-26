@@ -845,6 +845,21 @@
                         if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
                     }
                 });
+
+                // 5. 将 random_sfw 开关移到 清空按钮上方
+                const randomSfwWidget = node.widgets.find(w => w.name === "random_sfw");
+                const clearWidget = node.widgets.find(w => w.name === "清空");
+                if (randomSfwWidget && clearWidget) {
+                    const widgets = node.widgets;
+                    const rIdx = widgets.indexOf(randomSfwWidget);
+                    if (rIdx !== -1) widgets.splice(rIdx, 1);
+                    const cIdx = widgets.indexOf(clearWidget);
+                    if (cIdx !== -1) {
+                        widgets.splice(cIdx, 0, randomSfwWidget);
+                    } else {
+                        widgets.push(randomSfwWidget);
+                    }
+                }
             }
         });
     }

@@ -1803,6 +1803,18 @@
             }
           } catch { }
         });
+        apiObj.addEventListener("jdsc.textgate.update_text", (evt) => {
+          try {
+            const detail = evt && evt.detail || {};
+            const nodeId = detail.node; const text = detail.text || "";
+            if (!nodeId) return; const gate = findNodeById(nodeId); if (!gate) return;
+            const wEdit = (gate.widgets || []).find(w => String(w.name || "") === "edit_text");
+            if (wEdit) {
+              wEdit.value = text;
+              const g = getGraph(); if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true);
+            }
+          } catch { }
+        });
         apiObj.addEventListener("jdsc.textgate.status", (evt) => {
           try {
             const detail = evt && evt.detail || {};

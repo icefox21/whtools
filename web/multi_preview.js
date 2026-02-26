@@ -235,8 +235,26 @@ app.registerExtension({
             // 按钮区域定义 (x, y, w, h, name) - 动态计算
             this._buttons = [];
 
-            // 初始刷新 - 移除，不再自动加载历史记录
-            // setTimeout(() => this.refreshHistory(), 500);
+            // 隐藏 enable_images / enable_images_opt 默认 widget
+            const _hideToggleWidgets = () => {
+                if (!this.widgets) return;
+                for (let i = 0; i < this.widgets.length; i++) {
+                    const w = this.widgets[i];
+                    if (w.name === "enable_images" || w.name === "enable_images_opt") {
+                        w.type = "hidden";
+                        w.computeSize = () => [0, -4];
+                        // 完全覆盖其绘图函数
+                        w.draw = () => { };
+                        if (w.element) w.element.style.display = "none";
+                    }
+                }
+                // 保留当前尺寸，不用 computeSize 覆盖
+                const cur = this.size;
+                if (cur) {
+                    this.setSize([Math.max(cur[0], 250), Math.max(cur[1], 200)]);
+                }
+                this.setDirtyCanvas(true, true);
+            };
 
             // 监听后端 WebSocket 通知（关键：确保在文件保存完成后触发）
             const nodeRef = this;
@@ -258,6 +276,38 @@ app.registerExtension({
             } catch (e) {
                 console.error("[多图预览] 注册WebSocket监听失败:", e);
             }
+
+            // 初次隐藏 (延迟以防其他扩展覆盖)
+            requestAnimationFrame(_hideToggleWidgets);
+            setTimeout(_hideToggleWidgets, 100);
+        };
+
+        // 拦截配置加载，再次隐藏 widget（防止加载已有工作流时被重置）
+        const origOnConfigure = nodeType.prototype.onConfigure;
+        nodeType.prototype.onConfigure = function (info) {
+            if (origOnConfigure) origOnConfigure.apply(this, arguments);
+            const _hideWidgets = () => {
+                if (!this.widgets) return;
+                let needResize = false;
+                for (let i = 0; i < this.widgets.length; i++) {
+                    const w = this.widgets[i];
+                    if (w.name === "enable_images" || w.name === "enable_images_opt") {
+                        w.type = "hidden";
+                        w.computeSize = () => [0, -4];
+                        w.draw = () => { };
+                        needResize = true;
+                    }
+                }
+                if (needResize) {
+                    // 保留工作流中保存的尺寸，仅做最小约束
+                    const saved = info && info.size;
+                    if (saved) {
+                        this.setSize([Math.max(saved[0], 250), Math.max(saved[1], 200)]);
+                    }
+                }
+                this.setDirtyCanvas(true, true);
+            };
+            requestAnimationFrame(_hideWidgets);
         };
 
         // onExecuted 作为备用刷新机制
@@ -452,6 +502,17 @@ app.registerExtension({
             };
         }
 
+        // 获取 widget 值的辅助函数
+        function getWidgetValue(node, name) {
+            if (!node.widgets) return true;
+            const w = node.widgets.find(w => w.name === name);
+            return w ? w.value : true;
+        }
+
+        // 开关点击区域常量
+        const TOGGLE_RADIUS = 5;
+        const TOGGLE_RIGHT_MARGIN = 15; // 距节点右边缘的距离
+
         nodeType.prototype.onDrawForeground = function (ctx) {
             if (this.flags.collapsed) return;
 
@@ -460,6 +521,26 @@ app.registerExtension({
             const layout = calculateLayout(W, H);
 
             ctx.save();
+
+            // --- 0. 绘制输入 slot 旁的开关小圆点 ---
+            if (this.inputs) {
+                const slotMap = { "images": "enable_images", "images_opt": "enable_images_opt" };
+                for (let i = 0; i < this.inputs.length; i++) {
+                    const slot = this.inputs[i];
+                    const widgetName = slotMap[slot.name];
+                    if (!widgetName) continue;
+
+                    const enabled = getWidgetValue(this, widgetName);
+                    const slotY = this.getConnectionPos(true, i)[1] - this.pos[1];
+                    const cx = W - TOGGLE_RIGHT_MARGIN;
+                    const cy = slotY;
+
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, TOGGLE_RADIUS, 0, Math.PI * 2);
+                    ctx.fillStyle = enabled ? "#4CAF50" : "#F44336";
+                    ctx.fill();
+                }
+            }
 
             // --- 1. 绘制图片（网格模式或预览模式） ---
             ctx.beginPath();
@@ -725,6 +806,31 @@ app.registerExtension({
 
             // 使用相同的布局计算，确保点击区域准确
             const layout = calculateLayout(W, H);
+
+            // 0. 检测开关小圆点点击
+            if (this.inputs) {
+                const slotMap = { "images": "enable_images", "images_opt": "enable_images_opt" };
+                for (let i = 0; i < this.inputs.length; i++) {
+                    const slot = this.inputs[i];
+                    const widgetName = slotMap[slot.name];
+                    if (!widgetName) continue;
+
+                    const slotY = this.getConnectionPos(true, i)[1] - this.pos[1];
+                    const cx = W - TOGGLE_RIGHT_MARGIN;
+                    const cy = slotY;
+                    const dx = x - cx;
+                    const dy = y - cy;
+                    if (dx * dx + dy * dy <= (TOGGLE_RADIUS + 4) * (TOGGLE_RADIUS + 4)) {
+                        // 点击了开关，切换 widget 值
+                        const w = this.widgets && this.widgets.find(w => w.name === widgetName);
+                        if (w) {
+                            w.value = !w.value;
+                            this.setDirtyCanvas(true, true);
+                        }
+                        return true;
+                    }
+                }
+            }
 
             // 1. 先检查所有按钮（包括右上角的清空按钮）- 按钮不参与双击检测
             for (const btn of this._buttons) {

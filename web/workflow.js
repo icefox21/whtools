@@ -83,7 +83,12 @@
       }
       // 如果是 jdsc: 开头的设置，同步到服务器 settings.json
       if (String(key || '').startsWith('jdsc:')) {
-        window.__jdsc_settings_cache = window.__jdsc_settings_cache || {};
+        // [BUGFIX: Prevent race condition wiping settings.json on page load]
+        // If the settings cache hasn't loaded from the server yet, DO NOT overwrite the entire server file.
+        if (typeof window.__jdsc_settings_cache === 'undefined') {
+          console.warn('[工作流+] settings_cache not loaded yet, skipped saving to avoid wiping other settings:', key);
+          return;
+        }
         window.__jdsc_settings_cache[key] = val;
         fetch('/jdsc/settings', {
           method: 'POST',
