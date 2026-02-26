@@ -1,3 +1,7 @@
+// Copyright (c) 2024-2026 icefox21
+// This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+// Project Link: https://github.com/icefox21/whtools
+
 // ==============================================================================
 // 文本收藏扩展 - 为 WuhuoTextGate 节点添加文本收藏功能
 // 独立扩展文件,不修改原有 jdsc.js,避免触发版本检测和数据丢失问题

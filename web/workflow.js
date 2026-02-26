@@ -1,3 +1,7 @@
+// Copyright (c) 2024-2026 icefox21
+// This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+// Project Link: https://github.com/icefox21/whtools
+
 // 工作流管理前端代码
 (() => {
   const KEY_WF_FOLDERS = "jdsc:workflow_folders";

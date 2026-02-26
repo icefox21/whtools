@@ -1,3 +1,6 @@
+# Copyright (c) 2024-2026 icefox21
+# This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+# Project Link: https://github.com/icefox21/whtools
 
 class AnyType(str):
     """A special class that is always equal in not equal comparisons."""
