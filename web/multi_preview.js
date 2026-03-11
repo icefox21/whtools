@@ -153,7 +153,7 @@ app.registerExtension({
             }
 
             const key = e.key.toLowerCase();
-            if (key !== "x" && key !== "z") return;
+            if (key !== "x" && key !== "z" && key !== "c") return;
 
             // 获取鼠标位置
             const canvas = app.canvas;
@@ -198,6 +198,38 @@ app.registerExtension({
                         node.triggerQueueThisNode();
                         e.preventDefault();
                         e.stopPropagation();
+                    } else if (key === "c") {
+                        // C 键：切换对比模式
+                        if (node._loadedImages && node._loadedImages.length >= 2) {
+                            if (node._compareMode) {
+                                // 已在对比模式，退出
+                                console.log("[whtools] C键退出对比模式，节点ID:", node.id);
+                                node.exitCompareMode();
+                            } else {
+                                // 进入对比模式
+                                if (node._previewIndex < 0) {
+                                    // 处于网格模式，尝试获取鼠标点中的图片
+                                    const localX = mouse[0] - node.pos[0];
+                                    const localY = mouse[1] - node.pos[1];
+                                    node.handleSingleClick(localX, localY, null);
+
+                                    // 如果通过悬停没选中图片（如在空隙中），默认选中最新图
+                                    if (node._previewIndex < 0) {
+                                        node._previewIndex = 0;
+                                        node.setDirtyCanvas(true, true);
+                                    }
+                                }
+
+                                console.log("[whtools] C键触发对比模式，节点ID:", node.id);
+                                if (node._previewIndex === 0) {
+                                    node.enterCompareMode(1); // 和第二张对比
+                                } else {
+                                    node.enterCompareMode(node._previewIndex - 1); // 和上一张对比
+                                }
+                            }
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }
                     }
                     break; // 只处理第一个匹配的节点
                 }
@@ -962,8 +994,11 @@ app.registerExtension({
                     this._previewIndex = index;
                     this.setDirtyCanvas(true, true);
 
-                    // 注册键盘监听器（ESC 和 C）
+                    // 注册键盘监听器（仅 ESC，C 键已移至全局）
                     const node = this;
+                    if (this._escListener) {
+                        window.removeEventListener("keydown", this._escListener);
+                    }
                     this._escListener = function (e) {
                         // 检查鼠标是否在当前节点上
                         const canvas = app.canvas;
@@ -986,22 +1021,6 @@ app.registerExtension({
                             }
                             e.preventDefault();
                             e.stopPropagation();
-                        } else if ((e.key === "c" || e.key === "C") && isMouseOver) {
-                            // C 键切换对比模式
-                            console.log("[whtools] C key pressed on node:", node.id, "compareMode:", node._compareMode, "previewIndex:", node._previewIndex);
-                            if (node._compareMode) {
-                                // 已在对比模式，退出
-                                node.exitCompareMode();
-                            } else if (node._loadedImages.length >= 2) {
-                                // 进入对比模式
-                                // 如果是第一张（索引0），和下一张对比；否则和上一张对比
-                                if (node._previewIndex === 0) {
-                                    node.enterCompareMode(1); // 和第二张对比
-                                } else {
-                                    node.enterCompareMode(node._previewIndex - 1); // 和上一张对比
-                                }
-                            }
-                            e.preventDefault();
                         }
                     };
                     window.addEventListener("keydown", this._escListener);
