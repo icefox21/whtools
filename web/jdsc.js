@@ -1813,6 +1813,12 @@
               wEdit.value = text;
               const g = getGraph(); if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true);
             }
+            if (detail.name) {
+              gate.properties = gate.properties || {};
+              gate.properties.current_fav_name = detail.name;
+              const labelBtn = (gate.widgets || []).find(w => String(w.name || "").startsWith("🏷️ 词条:"));
+              if (labelBtn) labelBtn.name = "🏷️ 词条: " + detail.name;
+            }
           } catch { }
         });
         apiObj.addEventListener("jdsc.textgate.status", (evt) => {

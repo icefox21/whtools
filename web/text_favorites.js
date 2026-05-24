@@ -518,6 +518,11 @@
                     if (editWidget.callback) editWidget.callback(editWidget.value);
                     if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
 
+                    node.properties = node.properties || {};
+                    node.properties.current_fav_name = name;
+                    const labelBtn = node.widgets.find(w => w.name && w.name.startsWith("🏷️ 词条:"));
+                    if (labelBtn) labelBtn.name = "🏷️ 词条: " + name;
+
                     // 闪烁效果反馈
                     const oldBg = card.style.background;
                     card.style.background = '#52c41a';
@@ -762,6 +767,33 @@
                 const nodeType = node.comfyClass || node.type;
                 if (nodeType !== "WuhuoTextGate") return;
 
+                node.properties = node.properties || {};
+                const onConfigure = node.onConfigure;
+                node.onConfigure = function(info) {
+                    if (onConfigure) onConfigure.apply(this, arguments);
+                    if (this.properties && this.properties.current_fav_name) {
+                        const labelBtn = this.widgets.find(w => w.name && w.name.startsWith("🏷️ 词条:"));
+                        if (labelBtn) {
+                            labelBtn.name = "🏷️ 词条: " + this.properties.current_fav_name;
+                        }
+                    }
+                    
+                    // 修复由于新增按钮导致的旧版本工作流 widget 错位问题
+                    const enhanceWidget = this.widgets.find(w => w.name === "enhance_mode");
+                    const keyWordWidget = this.widgets.find(w => w.name === "key_word");
+                    const randomSfwWidget = this.widgets.find(w => w.name === "random_sfw");
+                    if (enhanceWidget && typeof enhanceWidget.value === "boolean") {
+                        // 如果 enhance_mode 变成了布尔值 (原本 random_sfw 的值)，说明发生了错位
+                        if (randomSfwWidget) randomSfwWidget.value = enhanceWidget.value;
+                        if (keyWordWidget) {
+                            enhanceWidget.value = keyWordWidget.value; // key_word 拿到了原 enhance_mode 的值
+                            keyWordWidget.value = ""; // 重置 key_word
+                        } else {
+                            enhanceWidget.value = "无";
+                        }
+                    }
+                };
+
                 // 1. 提示词收藏夹按钮
                 const favsBtn = node.addWidget("button", "提示词收藏夹", null, () => {
                     try { openTextFavsModal(node); } catch (e) { alert("❌ 打开失败: " + e); }
@@ -776,6 +808,11 @@
                             editWidget.value = text || "";
                             if (editWidget.callback) editWidget.callback(editWidget.value);
                             if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            
+                            node.properties = node.properties || {};
+                            node.properties.current_fav_name = "";
+                            const labelBtn = node.widgets.find(w => w.name && w.name.startsWith("🏷️ 词条:"));
+                            if (labelBtn) labelBtn.name = "🏷️ 词条: (未选择)";
                         }
                     } catch (e) { alert("❌ 粘贴失败，请检查权限"); }
                 });
@@ -791,7 +828,11 @@
                     widgets.splice(freePassIndex + 1, 0, favsBtn, pasteBtn);
                 }
 
-                // 3. 收藏当前按钮
+                // 3. 收藏当前按钮及当前词条显示
+                const currentFavBtn = node.addWidget("button", "🏷️ 词条: (未选择)", null, () => {
+                    try { openTextFavsModal(node); } catch (e) { alert("❌ 打开失败: " + e); }
+                });
+
                 const saveBtn = node.addWidget("button", "收藏当前", null, () => {
                     try {
                         const editWidget = node.widgets.find(w => w.name === "edit_text");
@@ -802,24 +843,33 @@
                             return;
                         }
 
-                        const name = prompt("请输入收藏名称:", "");
+                        const defaultName = (node.properties && node.properties.current_fav_name) ? node.properties.current_fav_name : "";
+                        const name = prompt("请输入收藏名称 (保持原名则覆盖当前词条):", defaultName);
                         if (!name || !name.trim()) return;
 
-                        // 默认分类：优先使用当前选中的分类（如果不是全部），否则用SFW
-                        let defaultCat = getLastCategory();
-                        if (defaultCat === "全部") defaultCat = "SFW";
-
-                        // 简单的分类输入
-                        let cat = prompt("请输入分类 (例如: NSFW, 人物, SFW):", defaultCat);
-                        if (cat === null) cat = defaultCat;
-
+                        let cat = "SFW";
                         const favs = getTextFavs();
+                        
+                        if (name.trim() === defaultName && favs[name.trim()]) {
+                            cat = favs[name.trim()].category;
+                        } else {
+                            let defaultCat = getLastCategory();
+                            if (defaultCat === "全部") defaultCat = "SFW";
+                            let inputCat = prompt("请输入分类 (例如: NSFW, 人物, SFW):", defaultCat);
+                            if (inputCat === null) return;
+                            cat = inputCat;
+                        }
+
                         favs[name.trim()] = {
                             content: currentText,
                             category: cat.trim() || "SFW",
                             tags: []
                         };
                         saveTextFavs(favs);
+                        
+                        node.properties = node.properties || {};
+                        node.properties.current_fav_name = name.trim();
+                        currentFavBtn.name = "🏷️ 词条: " + name.trim();
 
                         console.log('[TextFavorites] 已收藏:', name.trim());
                         try { openTextFavsModal(node); } catch (err) { }
@@ -834,9 +884,11 @@
                 if (editTextIndex !== -1) {
                     const widgets = node.widgets;
                     const saveBtnIndex = widgets.indexOf(saveBtn);
-                    if (saveBtnIndex !== -1) {
+                    const currentFavBtnIndex = widgets.indexOf(currentFavBtn);
+                    if (saveBtnIndex !== -1 && currentFavBtnIndex !== -1) {
                         widgets.splice(saveBtnIndex, 1);
-                        widgets.splice(editTextIndex + 1, 0, saveBtn);
+                        widgets.splice(currentFavBtnIndex, 1);
+                        widgets.splice(editTextIndex + 1, 0, currentFavBtn, saveBtn);
                     }
                 }
 
@@ -847,6 +899,11 @@
                         editWidget.value = "";
                         if (editWidget.callback) editWidget.callback("");
                         if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                        
+                        node.properties = node.properties || {};
+                        node.properties.current_fav_name = "";
+                        const labelBtn = node.widgets.find(w => w.name && w.name.startsWith("🏷️ 词条:"));
+                        if (labelBtn) labelBtn.name = "🏷️ 词条: (未选择)";
                     }
                 });
 

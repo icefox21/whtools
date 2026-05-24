@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2024-2026 icefox21
+# Copyright (c) 2024-2026 icefox21
 # This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
 # Project Link: https://github.com/icefox21/whtools
 
@@ -318,6 +318,7 @@ class WuhuoTextGate:
         # 处理随机 SFW 抽取逻辑
         if random_sfw:
             sfw_text = ""
+            chosen_name = ""
             try:
                 # 直接获取收藏文件路径
                 favs_path = os.path.join(DATA_DIRECTORY, "text_favorites.json")
@@ -325,9 +326,9 @@ class WuhuoTextGate:
                     with open(favs_path, "r", encoding="utf-8") as f:
                         favs_data = json.load(f)
                     # 筛选分类为 SFW 的提示词
-                    sfw_items = [v["content"] for k, v in favs_data.items() if isinstance(v, dict) and v.get("category") == "SFW" and v.get("content")]
+                    sfw_items = [(k, v["content"]) for k, v in favs_data.items() if isinstance(v, dict) and v.get("category") == "SFW" and v.get("content")]
                     if sfw_items:
-                        sfw_text = random.choice(sfw_items)
+                        chosen_name, sfw_text = random.choice(sfw_items)
             except Exception as e:
                 print(f"[whtools] 随机抽取SFW失败: {e}")
             
@@ -338,7 +339,7 @@ class WuhuoTextGate:
             # 告诉前端保持继续状态，并更新提示词框内容
             try:
                 if PromptServer is not None:
-                    PromptServer.instance.send_sync("jdsc.textgate.update_text", {"node": node_id, "text": sfw_text})
+                    PromptServer.instance.send_sync("jdsc.textgate.update_text", {"node": node_id, "text": sfw_text, "name": chosen_name})
                     PromptServer.instance.send_sync("jdsc.textgate.status", {"node": node_id, "passing": True, "received": received, "manual": True, "free": bool(free_pass), "edit": bool(enable_edit)})
             except Exception:
                 pass
@@ -1104,6 +1105,15 @@ try:
     multi_preview.register_routes()
 except Exception as e:
     print(f"[whtools] 多图预览模块加载失败: {e}")
+
+try:
+    from . import asset_library
+    # 注册极简资产库 API 路由
+    asset_library.register_routes()
+    NODE_CLASS_MAPPINGS.update(asset_library.NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(asset_library.NODE_DISPLAY_NAME_MAPPINGS)
+except Exception as e:
+    print(f"[whtools] 资产素材库模块加载失败: {e}")
 
 
 # ==========================================================================

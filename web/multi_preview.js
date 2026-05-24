@@ -891,6 +891,107 @@ app.registerExtension({
                 return true; // 阻止事件
             }
 
+            // 2.7 检查是否是 Shift+左键 保存图片 (替代 Alt+左键 避免冲突)
+            if (e.shiftKey) {
+                const inImageArea = y >= layout.headerH && y <= layout.headerH + layout.gridH;
+                if (inImageArea) {
+                    let clickedItem = null;
+                    if (this._previewIndex >= 0 && this._previewIndex < this._loadedImages.length) {
+                        clickedItem = this._loadedImages[this._previewIndex];
+                    } else if (this._loadedImages.length > 0) {
+                        // 计算网格中点击的是哪张图片
+                        const imageCount = this._loadedImages.length;
+                        const gap = 3;
+                        const maxCellW = 600;
+                        const maxCellH = 600;
+                        const padding = 6;
+                        const availableW = W - padding;
+                        const availableH = layout.gridH;
+                        
+                        let cols = 2;
+                        if (imageCount === 1) {
+                            cols = 1;
+                        } else {
+                            const cellW2 = (availableW - gap) / 2;
+                            if (cellW2 > maxCellW) {
+                                cols = Math.floor((availableW + gap) / (maxCellW + gap));
+                                cols = Math.max(2, Math.min(cols, imageCount));
+                            }
+                        }
+
+                        let rows = 2;
+                        const cellH2 = (availableH - gap) / 2;
+                        if (cellH2 > maxCellH && imageCount > cols * 2) {
+                            rows = Math.floor((availableH + gap) / (maxCellH + gap));
+                            rows = Math.max(2, rows);
+                        }
+                        const neededRows = Math.ceil(imageCount / cols);
+                        rows = Math.min(neededRows, rows);
+
+                        const cellW = (availableW - gap * (cols - 1)) / cols;
+                        const cellH = (availableH - gap * (rows - 1)) / rows;
+                        const startX = padding / 2;
+
+                        const col = Math.floor((x - startX) / (cellW + gap));
+                        const row = Math.floor((y - layout.headerH) / (cellH + gap));
+                        const index = row * cols + col;
+
+                        if (index >= 0 && index < Math.min(this._loadedImages.length, cols * rows) && col >= 0 && col < cols) {
+                            clickedItem = this._loadedImages[index];
+                        }
+                    }
+                    
+                    if (clickedItem) {
+                        const url = clickedItem.img.src;
+                        // 弹出分类选择菜单 (模拟右键菜单)
+                        fetch("/jdsc/assets/list")
+                            .then(res => res.json())
+                            .then(data => {
+                                if (!data.success) {
+                                    alert("获取分类失败: " + data.error);
+                                    return;
+                                }
+                                const subOptions = [];
+                                data.categories.forEach(cat => {
+                                    if (cat.name === "预览+历史记录") return;
+                                    subOptions.push({
+                                        content: "📁 " + cat.name,
+                                        callback: () => {
+                                            fetch("/jdsc/assets/save_media", {
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({
+                                                    url: url,
+                                                    target_category: cat.name
+                                                })
+                                            }).then(r => r.json()).then(res => {
+                                                if (res.success) {
+                                                    const tip = document.createElement("div");
+                                                    tip.textContent = "✅ 已收藏到: " + cat.name;
+                                                    tip.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:rgba(76,175,80,0.9); color:#fff; padding:10px 20px; border-radius:8px; z-index:10000; font-weight:bold; box-shadow:0 4px 12px rgba(0,0,0,0.3); transition:opacity 0.5s;";
+                                                    document.body.appendChild(tip);
+                                                    setTimeout(() => { tip.style.opacity = "0"; setTimeout(() => document.body.removeChild(tip), 500); }, 2000);
+                                                } else {
+                                                    alert("保存失败: " + res.error);
+                                                }
+                                            });
+                                        }
+                                    });
+                                });
+                                
+                                if (subOptions.length === 0) {
+                                    alert("素材库中还没有自定义目录，请先打开素材库进行添加！");
+                                    return;
+                                }
+                                
+                                LiteGraph.closeAllContextMenus();
+                                new LiteGraph.ContextMenu(subOptions, { event: e, left: e.clientX, top: e.clientY });
+                            });
+                        return true; // 拦截此点击，不进行预览或双击检测
+                    }
+                }
+            }
+
 
             // 3. 双击检测逻辑
             const now = Date.now();
@@ -1218,6 +1319,52 @@ app.registerExtension({
             const url = item.img.src;
 
             options.push({
+                content: "⭐ 收藏到素材库",
+                callback: async (value, menuOptions, e, menu, node) => {
+                    try {
+                        const res = await fetch("/jdsc/assets/list");
+                        const data = await res.json();
+                        if (data.success && data.categories) {
+                            const subOptions = data.categories
+                                .filter(c => c.name !== "全部" && c.name !== "预览+历史记录")
+                                .map(c => ({
+                                    content: `📁 ${c.name}`,
+                                    callback: async () => {
+                                        try {
+                                            const saveRes = await fetch("/jdsc/assets/save_to", {
+                                                method: "POST",
+                                                headers: {"Content-Type": "application/json"},
+                                                body: JSON.stringify({ source_filename: item.file, target_category: c.name })
+                                            });
+                                            const saveData = await saveRes.json();
+                                            if (saveData.success) {
+                                                // 可以加一个成功提示，比如控制台或短暂的高亮
+                                                console.log(`[jdsc] 成功收藏到分类: ${c.name}`);
+                                            } else {
+                                                alert("收藏失败: " + saveData.error);
+                                            }
+                                        } catch (err) {
+                                            console.error("收藏请求失败", err);
+                                        }
+                                    }
+                                }));
+                            
+                            if (subOptions.length === 0) {
+                                alert("素材库中还没有自定义目录，请先打开素材库进行添加！");
+                                return;
+                            }
+                            
+                            // 动态创建二级菜单使其跟随鼠标坐标
+                            LiteGraph.closeAllContextMenus();
+                            new LiteGraph.ContextMenu(subOptions, { event: e, left: e.clientX, top: e.clientY });
+                        }
+                    } catch (err) {
+                        console.error("获取分类列表失败", err);
+                    }
+                }
+            });
+
+            options.push({
                 content: "打开图像",
                 callback: () => {
                     window.open(url, "_blank");
@@ -1262,21 +1409,35 @@ app.registerExtension({
             options.push({
                 content: "删除图像",
                 callback: async () => {
-                    if (!confirm("确定要删除这张图片吗？")) return;
+                    if (!confirm("确定要删除这张图片吗？（将同步从硬盘中彻底删除）")) return;
 
                     try {
-                        // 从历史记录中移除该文件
+                        // 1. 调用后端接口从硬盘删除物理文件
+                        const response = await fetch("/jdsc/history/delete_image", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ 
+                                filename: item.file,
+                                node_id: this.id
+                            })
+                        });
+                        const data = await response.json();
+                        if (!data.success) {
+                            console.warn("后端硬盘文件删除失败或文件不存在:", data.error);
+                        }
+
+                        // 2. 从前端历史记录数组中移除该文件
                         const index = this._history.indexOf(item.file);
                         if (index > -1) {
                             this._history.splice(index, 1);
                         }
 
-                        // 如果在预览模式，退出预览
+                        // 3. 如果在预览模式，退出预览
                         if (this._previewIndex >= 0) {
                             this.exitPreview();
                         }
 
-                        // 重新加载当前页
+                        // 4. 重新加载当前页
                         // 如果当前页已经没有图片了，回到上一页
                         const totalPages = Math.max(1, Math.ceil(this._history.length / this._imagesPerPage));
                         if (this._page >= totalPages) {

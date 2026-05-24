@@ -119,6 +119,9 @@ class WuhuoMultiPreview:
                         
         except Exception as e:
             print(f"[多图预览] 保存图片时出错: {e}")
+            
+        # 每次保存后，触发全局瘦身，确保硬盘不会被撑爆
+        self._cleanup_history_directory()
         
         return ()
     
@@ -157,6 +160,34 @@ class WuhuoMultiPreview:
                 
         except Exception as e:
             print(f"[多图预览] 更新历史记录时出错: {e}")
+
+    def _cleanup_history_directory(self):
+        """自动清理历史文件夹，确保总文件数不超过上限，基于 FIFO (先进先出) 规则"""
+        try:
+            if not os.path.exists(HISTORY_DIR):
+                return
+            
+            MAX_HISTORY_FILES = 1000 # 最大允许的物理文件总数
+            
+            files = []
+            for f in os.listdir(HISTORY_DIR):
+                path = os.path.join(HISTORY_DIR, f)
+                if os.path.isfile(path):
+                    files.append((path, os.path.getmtime(path)))
+            
+            # 如果文件数超过上限，则按修改时间升序（最老的在前）
+            if len(files) > MAX_HISTORY_FILES:
+                files.sort(key=lambda x: x[1])
+                num_to_delete = len(files) - MAX_HISTORY_FILES
+                
+                for i in range(num_to_delete):
+                    try:
+                        os.remove(files[i][0])
+                    except:
+                        pass
+                print(f"[Wuhuo 素材库] 历史记录瘦身触发: 自动清理了 {num_to_delete} 个老旧文件。")
+        except Exception as e:
+            print(f"[Wuhuo 素材库] 清理历史文件出错: {e}")
 
 
 # 节点注册信息
@@ -244,6 +275,48 @@ def register_routes():
                 return web.Response(body=f.read(), content_type="image/png")
         except Exception:
             return web.Response(status=500)
+
+    # 删除历史图片文件
+    @PromptServer.instance.routes.post("/jdsc/history/delete_image")
+    async def jdsc_delete_history_image(request):
+        try:
+            payload = await request.json()
+            filename = payload.get("filename", "")
+            node_id = str(payload.get("node_id", ""))
+            
+            if not filename:
+                return web.json_response({"success": False, "error": "No filename provided"})
+                
+            # 安全检查：防止路径遍历攻击
+            if ".." in filename or "/" in filename or "\\" in filename:
+                return web.json_response({"success": False, "error": "Invalid filename"})
+                
+            filepath = os.path.join(HISTORY_DIR, filename)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                
+            # 同步清理 history_map.json 里的记录
+            if node_id and os.path.exists(HISTORY_MAP_FILE):
+                try:
+                    with open(HISTORY_MAP_FILE, "r", encoding="utf-8") as f:
+                        history_data = json.load(f)
+                        
+                    if node_id in history_data:
+                        modified = False
+                        for batch in history_data[node_id]:
+                            if filename in batch.get("files", []):
+                                batch["files"].remove(filename)
+                                modified = True
+                        
+                        if modified:
+                            with open(HISTORY_MAP_FILE, "w", encoding="utf-8") as f:
+                                json.dump(history_data, f, ensure_ascii=False, indent=2)
+                except Exception as map_err:
+                    print(f"[多图预览] 清理 history_map 时出错: {map_err}")
+
+            return web.json_response({"success": True})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
 
     # 打开历史图片保存目录
     @PromptServer.instance.routes.post("/jdsc/history/open_folder")

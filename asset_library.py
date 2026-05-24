@@ -1,0 +1,377 @@
+import os
+import json
+import shutil
+import urllib.parse
+import base64
+import uuid
+import folder_paths
+from server import PromptServer
+from aiohttp import web
+
+# 获取数据目录路径
+DATA_DIRECTORY = os.path.join(os.path.dirname(__file__), "data")
+CONFIG_FILE = os.path.join(DATA_DIRECTORY, "asset_config.json")
+HISTORY_DIR = os.path.join(DATA_DIRECTORY, "history_images")
+
+def get_config():
+    """读取自定义目录配置"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+    return {"directories": []}
+
+def save_config(config):
+    """保存配置"""
+    os.makedirs(DATA_DIRECTORY, exist_ok=True)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+def ensure_config():
+    """初始化默认配置"""
+    config = get_config()
+    # 强制注入预览+历史目录（如果不存在的话）
+    has_history = any(d.get("name") == "预览+历史记录" for d in config.get("directories", []))
+    if not has_history:
+        os.makedirs(HISTORY_DIR, exist_ok=True)
+        config["directories"].insert(0, {
+            "name": "预览+历史记录",
+            "path": HISTORY_DIR
+        })
+        save_config(config)
+    return config
+
+def register_routes():
+    """注册资产素材库的 API 路由"""
+    ensure_config()
+
+    if PromptServer is None:
+        return
+        
+    @PromptServer.instance.routes.get("/jdsc/assets/list")
+    async def get_assets_list(request):
+        """返回所有配置目录及其下的文件列表"""
+        try:
+            config = ensure_config()
+            categories = []
+            
+            for d in config.get("directories", []):
+                name = d.get("name")
+                path = d.get("path")
+                files = []
+                if path and os.path.exists(path) and os.path.isdir(path):
+                    try:
+                        for f in os.listdir(path):
+                            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp')):
+                                files.append(f)
+                    except:
+                        pass
+                categories.append({
+                    "name": name,
+                    "path": path,
+                    "files": sorted(files, reverse=True) # 按文件名倒序，方便看到最新的图
+                })
+                    
+            return web.json_response({"success": True, "categories": categories})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    @PromptServer.instance.routes.get("/jdsc/assets/image")
+    async def get_asset_image(request):
+        """获取具体的图片文件 (根据绝对路径)"""
+        try:
+            category_name = request.query.get("category", "")
+            filename = request.query.get("filename", "")
+            
+            if not category_name or not filename:
+                return web.Response(status=404)
+                
+            if ".." in filename or "/" in filename or "\\" in filename:
+                return web.Response(status=403)
+                
+            config = get_config()
+            target_path = None
+            for d in config.get("directories", []):
+                if d.get("name") == category_name:
+                    target_path = d.get("path")
+                    break
+                    
+            if not target_path or not os.path.exists(target_path):
+                return web.Response(status=404)
+                
+            filepath = os.path.join(target_path, filename)
+            if not os.path.exists(filepath):
+                return web.Response(status=404)
+                
+            ext = os.path.splitext(filename)[1].lower()
+            content_type = "image/png"
+            if ext in [".jpg", ".jpeg"]:
+                content_type = "image/jpeg"
+            elif ext == ".webp":
+                content_type = "image/webp"
+            elif ext == ".gif":
+                content_type = "image/gif"
+                
+            with open(filepath, "rb") as f:
+                return web.Response(body=f.read(), content_type=content_type)
+        except Exception:
+            return web.Response(status=500)
+
+    @PromptServer.instance.routes.post("/jdsc/assets/delete")
+    async def delete_asset_image(request):
+        """删除指定的图片文件"""
+        try:
+            payload = await request.json()
+            category_name = payload.get("category", "")
+            filename = payload.get("filename", "")
+            
+            if not category_name or not filename:
+                return web.json_response({"success": False, "error": "Missing parameters"})
+                
+            if ".." in filename or "/" in filename or "\\" in filename:
+                return web.json_response({"success": False, "error": "Invalid filename"})
+                
+            config = get_config()
+            target_path = None
+            for d in config.get("directories", []):
+                if d.get("name") == category_name:
+                    target_path = d.get("path")
+                    break
+                    
+            if not target_path or not os.path.exists(target_path):
+                return web.json_response({"success": False, "error": "Category path not found"})
+                
+            filepath = os.path.join(target_path, filename)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                return web.json_response({"success": True})
+            else:
+                return web.json_response({"success": False, "error": "File not found"})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    @PromptServer.instance.routes.post("/jdsc/assets/open_folder")
+    async def open_assets_folder(request):
+        """跨平台打开指定的物理文件夹"""
+        try:
+            import subprocess
+            import sys
+            
+            payload = await request.json()
+            category_name = payload.get("category", "")
+            
+            config = get_config()
+            target_path = None
+            for d in config.get("directories", []):
+                if d.get("name") == category_name:
+                    target_path = d.get("path")
+                    break
+                    
+            if not target_path or not os.path.exists(target_path):
+                return web.json_response({"success": False, "error": "Path not found"})
+            
+            if sys.platform == 'win32':
+                os.startfile(target_path)
+            elif sys.platform == 'darwin':
+                subprocess.call(['open', target_path])
+            else:
+                subprocess.call(['xdg-open', target_path])
+                
+            return web.json_response({"success": True})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+            
+    @PromptServer.instance.routes.post("/jdsc/assets/add_dir")
+    async def add_asset_dir(request):
+        """新增自定义目录映射"""
+        try:
+            payload = await request.json()
+            name = payload.get("name", "").strip()
+            path = payload.get("path", "").strip()
+            
+            if not name or not path:
+                return web.json_response({"success": False, "error": "名称和路径不能为空"})
+            
+            if not os.path.exists(path) or not os.path.isdir(path):
+                return web.json_response({"success": False, "error": "该物理路径不存在或不是文件夹"})
+                
+            config = get_config()
+            for d in config.get("directories", []):
+                if d.get("name") == name:
+                    return web.json_response({"success": False, "error": "分类名称已存在"})
+            
+            config["directories"].append({"name": name, "path": path})
+            save_config(config)
+            
+            return web.json_response({"success": True})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    @PromptServer.instance.routes.post("/jdsc/assets/remove_dir")
+    async def remove_asset_dir(request):
+        """移除目录映射（不删物理文件）"""
+        try:
+            payload = await request.json()
+            name = payload.get("name", "").strip()
+            
+            if not name or name == "预览+历史记录":
+                return web.json_response({"success": False, "error": "该目录无法移除"})
+                
+            config = get_config()
+            config["directories"] = [d for d in config["directories"] if d.get("name") != name]
+            save_config(config)
+            
+            return web.json_response({"success": True})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+            
+    @PromptServer.instance.routes.post("/jdsc/assets/save_to")
+    async def save_asset_to_dir(request):
+        """将图片复制/保存到素材库特定目录"""
+        try:
+            payload = await request.json()
+            source_filename = payload.get("source_filename", "") # 例如从 history_images 过来的文件名
+            target_category = payload.get("target_category", "")
+            
+            if not source_filename or not target_category:
+                return web.json_response({"success": False, "error": "缺少参数"})
+                
+            if ".." in source_filename or "/" in source_filename or "\\" in source_filename:
+                return web.json_response({"success": False, "error": "非法的源文件名"})
+                
+            config = get_config()
+            target_path = None
+            for d in config.get("directories", []):
+                if d.get("name") == target_category:
+                    target_path = d.get("path")
+                    break
+                    
+            if not target_path or not os.path.exists(target_path):
+                return web.json_response({"success": False, "error": "目标分类目录不存在"})
+                
+            source_filepath = os.path.join(HISTORY_DIR, source_filename)
+            if not os.path.exists(source_filepath):
+                return web.json_response({"success": False, "error": "源图片不存在"})
+                
+            target_filepath = os.path.join(target_path, source_filename)
+            # 为了防止重名覆盖，可以在文件名后加个小后缀
+            if os.path.exists(target_filepath):
+                import time
+                base, ext = os.path.splitext(source_filename)
+                target_filepath = os.path.join(target_path, f"{base}_{int(time.time())}{ext}")
+                
+            shutil.copy2(source_filepath, target_filepath)
+            
+            return web.json_response({"success": True})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    @PromptServer.instance.routes.post("/jdsc/assets/save_media")
+    async def save_media(request):
+        """解析给定的 URL 或 Base64 并将其真实物理文件拷贝至素材库的指定分类目录"""
+        try:
+            payload = await request.json()
+            url = payload.get("url", "")
+            target_category = payload.get("target_category", "")
+            
+            if not url or not target_category:
+                return web.json_response({"success": False, "error": "缺少 URL 或目标分类参数"})
+                
+            config = get_config()
+            target_path = None
+            for d in config.get("directories", []):
+                if d.get("name") == target_category:
+                    target_path = d.get("path")
+                    break
+                    
+            if target_category == "预览+历史记录":
+                target_path = HISTORY_DIR
+                
+            if not target_path or not os.path.exists(target_path):
+                return web.json_response({"success": False, "error": "目标分类目录不存在"})
+
+            import time
+            
+            # 处理 Base64 内联图片
+            if url.startswith("data:"):
+                header, encoded = url.split(",", 1)
+                file_ext = ".png"
+                if "image/jpeg" in header: file_ext = ".jpg"
+                elif "image/webp" in header: file_ext = ".webp"
+                elif "video/mp4" in header: file_ext = ".mp4"
+                
+                target_filename = f"snip_{int(time.time())}_{uuid.uuid4().hex[:6]}{file_ext}"
+                target_filepath = os.path.join(target_path, target_filename)
+                
+                with open(target_filepath, "wb") as f:
+                    f.write(base64.b64decode(encoded))
+                return web.json_response({"success": True, "saved_as": target_filename})
+                
+            # 解析 ComfyUI 本地路由 (e.g. /view?filename=x.png&type=output&subfolder=y) 或 JDSC 自有路由
+            parsed = urllib.parse.urlparse(url)
+            query = urllib.parse.parse_qs(parsed.query)
+            
+            filename = query.get("filename", [""])[0]
+            if not filename:
+                return web.json_response({"success": False, "error": "无法从 URL 提取 filename"})
+                
+            is_history = False
+            # 判断是否为 JDSC 自带的历史记录预览图
+            if parsed.path.startswith("/jdsc/history/image"):
+                source_filepath = os.path.join(HISTORY_DIR, filename)
+                is_history = True
+            else:
+                file_type = query.get("type", ["output"])[0]
+                subfolder = query.get("subfolder", [""])[0]
+                
+                # 利用 folder_paths 还原真实路径
+                source_dir = folder_paths.get_directory_by_type(file_type)
+                if not source_dir:
+                    return web.json_response({"success": False, "error": f"未知的目录类型: {file_type}"})
+                    
+                source_filepath = os.path.join(source_dir, subfolder, filename)
+            
+            if not os.path.exists(source_filepath):
+                return web.json_response({"success": False, "error": f"源文件不存在: {source_filepath}"})
+                
+            # 拷贝或剪切文件并处理重名
+            target_filepath = os.path.join(target_path, filename)
+            if os.path.exists(target_filepath):
+                base, ext = os.path.splitext(filename)
+                target_filepath = os.path.join(target_path, f"{base}_{int(time.time())}{ext}")
+                
+            if is_history:
+                shutil.move(source_filepath, target_filepath)
+            else:
+                shutil.copy2(source_filepath, target_filepath)
+            
+            return web.json_response({"success": True})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+# ==========================================================================
+# 节点注册 (供前端调用入口)
+# ==========================================================================
+class WuhuoAssetLibrary:
+    """提供一个打开素材库面板的入口节点"""
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}}
+    
+    RETURN_TYPES = ()
+    FUNCTION = "noop"
+    OUTPUT_NODE = True
+    CATEGORY = "wuhuo"
+
+    def noop(self):
+        return ()
+
+NODE_CLASS_MAPPINGS = {
+    "WuhuoAssetLibrary": WuhuoAssetLibrary
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "WuhuoAssetLibrary": "🖼️ 资产素材库"
+}
