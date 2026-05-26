@@ -150,9 +150,15 @@ class WuhuoMultiPreview:
                 "files": saved_files
             })
             
-            # 限制数量
-            if len(history_data[node_key]) > 50:
-                history_data[node_key] = history_data[node_key][:50]
+            # 限制单节点历史记录：基于图片总数而不是批次数，最高 1000 张
+            total_images = 0
+            keep_batches = 0
+            for batch in history_data[node_key]:
+                total_images += len(batch.get("files", []))
+                keep_batches += 1
+                if total_images > 1000:
+                    break
+            history_data[node_key] = history_data[node_key][:keep_batches]
             
             # 保存
             with open(HISTORY_MAP_FILE, "w", encoding="utf-8") as f:
@@ -162,7 +168,9 @@ class WuhuoMultiPreview:
             print(f"[多图预览] 更新历史记录时出错: {e}")
 
     def _cleanup_history_directory(self):
-        """自动清理历史文件夹，确保总文件数不超过上限，基于 FIFO (先进先出) 规则"""
+        """自动清理历史文件夹，确保总文件数不超过上限，基于 FIFO (先进先出) 规则
+        第一性原理：硬盘文件和JSON映射必须是强一致性的事务，不能只删物理文件不删JSON。
+        """
         try:
             if not os.path.exists(HISTORY_DIR):
                 return
@@ -173,19 +181,43 @@ class WuhuoMultiPreview:
             for f in os.listdir(HISTORY_DIR):
                 path = os.path.join(HISTORY_DIR, f)
                 if os.path.isfile(path):
-                    files.append((path, os.path.getmtime(path)))
+                    files.append((path, os.path.getmtime(path), f))
             
             # 如果文件数超过上限，则按修改时间升序（最老的在前）
             if len(files) > MAX_HISTORY_FILES:
                 files.sort(key=lambda x: x[1])
                 num_to_delete = len(files) - MAX_HISTORY_FILES
                 
+                deleted_filenames = set()
                 for i in range(num_to_delete):
                     try:
                         os.remove(files[i][0])
+                        deleted_filenames.add(files[i][2])
                     except:
                         pass
-                print(f"[Wuhuo 素材库] 历史记录瘦身触发: 自动清理了 {num_to_delete} 个老旧文件。")
+                
+                # 防御性编程：同步清理 history_map.json 中对应的记录，防止前端加载出“死链”
+                if deleted_filenames and os.path.exists(HISTORY_MAP_FILE):
+                    try:
+                        with open(HISTORY_MAP_FILE, "r", encoding="utf-8") as f:
+                            history_data = json.load(f)
+                        
+                        modified = False
+                        for n_id, batches in history_data.items():
+                            for batch in batches:
+                                original_files = batch.get("files", [])
+                                new_files = [img for img in original_files if img not in deleted_filenames]
+                                if len(new_files) != len(original_files):
+                                    batch["files"] = new_files
+                                    modified = True
+                        
+                        if modified:
+                            with open(HISTORY_MAP_FILE, "w", encoding="utf-8") as f:
+                                json.dump(history_data, f, ensure_ascii=False, indent=2)
+                    except Exception as map_err:
+                        print(f"[多图预览] 同步清理 JSON 映射表失败: {map_err}")
+                
+                print(f"[Wuhuo 素材库] 历史记录瘦身触发: 自动清理了 {len(deleted_filenames)} 个老旧文件。")
         except Exception as e:
             print(f"[Wuhuo 素材库] 清理历史文件出错: {e}")
 

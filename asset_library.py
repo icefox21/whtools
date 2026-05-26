@@ -152,6 +152,57 @@ def register_routes():
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)})
 
+    @PromptServer.instance.routes.post("/jdsc/assets/move_asset")
+    async def move_asset_image(request):
+        """移动图片到另一个分类"""
+        try:
+            payload = await request.json()
+            source_category = payload.get("source_category", "")
+            filename = payload.get("filename", "")
+            target_category = payload.get("target_category", "")
+            
+            if not source_category or not filename or not target_category:
+                return web.json_response({"success": False, "error": "Missing parameters"})
+                
+            if ".." in filename or "/" in filename or "\\" in filename:
+                return web.json_response({"success": False, "error": "Invalid filename"})
+                
+            config = get_config()
+            source_path = None
+            target_path = None
+            
+            for d in config.get("directories", []):
+                if d.get("name") == source_category:
+                    source_path = d.get("path")
+                if d.get("name") == target_category:
+                    target_path = d.get("path")
+                    
+            if not source_path or not os.path.exists(source_path):
+                return web.json_response({"success": False, "error": "Source category path not found"})
+                
+            if not target_path or not os.path.exists(target_path):
+                return web.json_response({"success": False, "error": "Target category path not found"})
+                
+            source_filepath = os.path.join(source_path, filename)
+            if not os.path.exists(source_filepath):
+                return web.json_response({"success": False, "error": "File not found"})
+                
+            target_filepath = os.path.join(target_path, filename)
+            if os.path.exists(target_filepath):
+                import time
+                base, ext = os.path.splitext(filename)
+                target_filepath = os.path.join(target_path, f"{base}_{int(time.time())}{ext}")
+                
+            # 第一性原理：避免跨盘移动抛出OSError。先尝试rename，失败则降级为shutil.move
+            try:
+                os.rename(source_filepath, target_filepath)
+            except OSError:
+                shutil.move(source_filepath, target_filepath)
+                
+            return web.json_response({"success": True})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
     @PromptServer.instance.routes.post("/jdsc/assets/open_folder")
     async def open_assets_folder(request):
         """跨平台打开指定的物理文件夹"""
@@ -262,7 +313,13 @@ def register_routes():
                 base, ext = os.path.splitext(source_filename)
                 target_filepath = os.path.join(target_path, f"{base}_{int(time.time())}{ext}")
                 
-            shutil.copy2(source_filepath, target_filepath)
+            # 第一性原理：使用操作系统的硬链接(Hard Link)指向同一Inode
+            # 零空间占用，同时保留两端独立的文件系统入口
+            try:
+                os.link(source_filepath, target_filepath)
+            except OSError:
+                # 防御性编程：跨盘或不支持硬链接的环境降级为复制
+                shutil.copy2(source_filepath, target_filepath)
             
             return web.json_response({"success": True})
         except Exception as e:
@@ -342,9 +399,11 @@ def register_routes():
                 base, ext = os.path.splitext(filename)
                 target_filepath = os.path.join(target_path, f"{base}_{int(time.time())}{ext}")
                 
-            if is_history:
-                shutil.move(source_filepath, target_filepath)
-            else:
+            # 第一性原理：避免移动文件导致原处失效。直接通过硬链接绑定同一份数据。
+            try:
+                os.link(source_filepath, target_filepath)
+            except OSError:
+                # 防御性编程：跨盘不支持硬链接时降级为复制，确保“继续显示”不被破坏
                 shutil.copy2(source_filepath, target_filepath)
             
             return web.json_response({"success": True})

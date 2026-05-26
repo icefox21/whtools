@@ -153,7 +153,7 @@ app.registerExtension({
             }
 
             const key = e.key.toLowerCase();
-            if (key !== "x" && key !== "z" && key !== "c") return;
+            if (key !== "x" && key !== "z" && key !== "c" && key !== "d") return;
 
             // 获取鼠标位置
             const canvas = app.canvas;
@@ -230,6 +230,98 @@ app.registerExtension({
                             e.preventDefault();
                             e.stopPropagation();
                         }
+                    } else if (key === "d") {
+                        // D 键：删除鼠标悬停的图片 (等同于右键菜单的删除)
+                        let itemToDelete = null;
+                        if (node._previewIndex >= 0 && node._previewIndex < node._loadedImages.length) {
+                            itemToDelete = node._loadedImages[node._previewIndex];
+                        } else if (node._loadedImages && node._loadedImages.length > 0) {
+                            const localX = mouse[0] - node.pos[0];
+                            const localY = mouse[1] - node.pos[1];
+                            const W = node.size[0];
+                            const H = node.size[1];
+                            const scale = Math.min(1, W / 320);
+                            const controlH = Math.max(24, 30 * scale);
+                            const headerH = 60;
+                            const gridH = H - controlH - headerH;
+                            const inImageArea = localY >= headerH && localY <= headerH + gridH;
+                            
+                            if (inImageArea) {
+                                const imageCount = node._loadedImages.length;
+                                const gap = 3;
+                                const maxCellW = 600;
+                                const maxCellH = 600;
+                                const padding = 6;
+                                const availableW = W - padding;
+                                const availableH = gridH;
+
+                                let cols = 2;
+                                if (imageCount === 1) { cols = 1; } else {
+                                    const cellW2 = (availableW - gap) / 2;
+                                    if (cellW2 > maxCellW) {
+                                        cols = Math.floor((availableW + gap) / (maxCellW + gap));
+                                        cols = Math.max(2, Math.min(cols, imageCount));
+                                    }
+                                }
+
+                                let rows = 2;
+                                const cellH2 = (availableH - gap) / 2;
+                                if (cellH2 > maxCellH && imageCount > cols * 2) {
+                                    rows = Math.floor((availableH + gap) / (maxCellH + gap));
+                                    rows = Math.max(2, rows);
+                                }
+                                const neededRows = Math.ceil(imageCount / cols);
+                                rows = Math.min(neededRows, rows);
+
+                                const cellW = (availableW - gap * (cols - 1)) / cols;
+                                const cellH = (availableH - gap * (rows - 1)) / rows;
+                                const startX = padding / 2;
+
+                                const col = Math.floor((localX - startX) / (cellW + gap));
+                                const row = Math.floor((localY - headerH) / (cellH + gap));
+                                const index = row * cols + col;
+
+                                if (index >= 0 && index < Math.min(node._loadedImages.length, cols * rows) && col >= 0 && col < cols) {
+                                    itemToDelete = node._loadedImages[index];
+                                }
+                            }
+                        }
+
+                        if (itemToDelete) {
+                            // 为了防止误触，删除操作通常需要确认，由于是快捷键，用户可能会觉得麻烦。
+                            // 但由于会删除物理文件，我们还是保留原右键菜单一样的 confirm。
+                            if (confirm("确定要删除这张图片吗？（将同步从硬盘中彻底删除）")) {
+                                fetch("/jdsc/history/delete_image", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ 
+                                        filename: itemToDelete.file,
+                                        node_id: node.id
+                                    })
+                                }).then(response => response.json()).then(data => {
+                                    if (!data.success) {
+                                        console.warn("后端硬盘文件删除失败或文件不存在:", data.error);
+                                    }
+                                    const index = node._history.indexOf(itemToDelete.file);
+                                    if (index > -1) {
+                                        node._history.splice(index, 1);
+                                    }
+                                    if (node._previewIndex >= 0) {
+                                        node.exitPreview();
+                                    }
+                                    const totalPages = Math.max(1, Math.ceil(node._history.length / node._imagesPerPage));
+                                    if (node._page >= totalPages) {
+                                        node._page = Math.max(0, totalPages - 1);
+                                    }
+                                    node.loadCurrentPageImages();
+                                }).catch(e => {
+                                    console.error("删除图像失败:", e);
+                                    alert("删除失败");
+                                });
+                            }
+                        }
+                        e.preventDefault();
+                        e.stopPropagation();
                     }
                     break; // 只处理第一个匹配的节点
                 }
@@ -1407,7 +1499,7 @@ app.registerExtension({
             options.push(null); // 分隔线
 
             options.push({
-                content: "删除图像",
+                content: "❌ 删除图像",
                 callback: async () => {
                     if (!confirm("确定要删除这张图片吗？（将同步从硬盘中彻底删除）")) return;
 

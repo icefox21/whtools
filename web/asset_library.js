@@ -73,6 +73,10 @@ class AssetLibrary {
         this.currentCategory = "全部";
         this.searchQuery = "";
         this.isBuilt = false;
+        
+        // Navigation state for lightbox
+        this.currentDisplayItems = [];
+        this.currentLightboxIndex = -1;
     }
 
     async fetchAssets() {
@@ -348,19 +352,69 @@ class AssetLibrary {
             }
         });
 
-        this.lightbox.append(this.lightboxImg, lightboxCloseBtn);
+        // 左右切换按钮
+        const prevBtn = document.createElement("button");
+        prevBtn.innerHTML = "◀";
+        prevBtn.style.cssText = "position:absolute; left:20px; top:50%; transform:translateY(-50%); background:rgba(0,0,0,0.5); color:#fff; border:none; border-radius:50%; width:50px; height:50px; font-size:24px; cursor:pointer; z-index:10001; display:flex; justify-content:center; align-items:center; transition:background 0.2s;";
+        prevBtn.onmouseenter = () => prevBtn.style.background = "rgba(0,0,0,0.8)";
+        prevBtn.onmouseleave = () => prevBtn.style.background = "rgba(0,0,0,0.5)";
+        prevBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.prevLightboxImage();
+        };
+
+        const nextBtn = document.createElement("button");
+        nextBtn.innerHTML = "▶";
+        nextBtn.style.cssText = "position:absolute; right:20px; top:50%; transform:translateY(-50%); background:rgba(0,0,0,0.5); color:#fff; border:none; border-radius:50%; width:50px; height:50px; font-size:24px; cursor:pointer; z-index:10001; display:flex; justify-content:center; align-items:center; transition:background 0.2s;";
+        nextBtn.onmouseenter = () => nextBtn.style.background = "rgba(0,0,0,0.8)";
+        nextBtn.onmouseleave = () => nextBtn.style.background = "rgba(0,0,0,0.5)";
+        nextBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.nextLightboxImage();
+        };
+
+        this.lightbox.append(this.lightboxImg, lightboxCloseBtn, prevBtn, nextBtn);
         document.body.appendChild(this.lightbox);
 
-        // Global ESC to close
+        // Global ESC and Arrow Keys
         window.addEventListener("keydown", (e) => {
-            if (e.key === "Escape") {
-                if (this.lightbox.style.display === "flex") {
+            if (this.lightbox.style.display === "flex") {
+                if (e.key === "Escape") {
                     this.lightbox.style.display = "none";
-                } else if (this.modal.style.display === "flex") {
-                    this.hide();
+                } else if (e.key === "ArrowLeft") {
+                    this.prevLightboxImage();
+                } else if (e.key === "ArrowRight") {
+                    this.nextLightboxImage();
                 }
+            } else if (e.key === "Escape" && this.modal.style.display === "flex") {
+                this.hide();
             }
         });
+    }
+
+    showLightboxImage() {
+        if (this.currentLightboxIndex < 0 || this.currentLightboxIndex >= this.currentDisplayItems.length) return;
+        const item = this.currentDisplayItems[this.currentLightboxIndex];
+        const url = `/jdsc/assets/image?category=${encodeURIComponent(item.category)}&filename=${encodeURIComponent(item.filename)}`;
+        this.lightboxImg.src = url;
+        this.lightbox.style.display = "flex";
+        if (this.resetLightbox) {
+            this.resetLightbox(); // This will reset the zoom to fit the screen
+        }
+    }
+    
+    prevLightboxImage() {
+        if (this.currentDisplayItems.length <= 1) return;
+        this.currentLightboxIndex--;
+        if (this.currentLightboxIndex < 0) this.currentLightboxIndex = this.currentDisplayItems.length - 1;
+        this.showLightboxImage();
+    }
+
+    nextLightboxImage() {
+        if (this.currentDisplayItems.length <= 1) return;
+        this.currentLightboxIndex++;
+        if (this.currentLightboxIndex >= this.currentDisplayItems.length) this.currentLightboxIndex = 0;
+        this.showLightboxImage();
     }
 
     async refresh() {
@@ -553,12 +607,14 @@ class AssetLibrary {
             displayItems = displayItems.filter(item => item.filename.toLowerCase().includes(this.searchQuery));
         }
 
+        this.currentDisplayItems = displayItems;
+
         if (displayItems.length === 0) {
             this.grid.innerHTML = '<div class="jdsc-asset-empty">没有找到素材。请点击右上角"打开硬盘目录"添加图片。</div>';
             return;
         }
 
-        displayItems.forEach(item => {
+        displayItems.forEach((item, index) => {
             const url = `/jdsc/assets/image?category=${encodeURIComponent(item.category)}&filename=${encodeURIComponent(item.filename)}`;
             
             const box = document.createElement("div");
@@ -582,23 +638,140 @@ class AssetLibrary {
             title.className = "jdsc-asset-item-title";
             title.textContent = item.filename;
             
-            const delBtn = document.createElement("button");
-            delBtn.className = "jdsc-asset-item-delete";
-            delBtn.innerHTML = "🗑️";
-            delBtn.onclick = (e) => {
-                e.stopPropagation();
-                this.deleteAsset(item.category, item.filename);
-            };
-            
             box.onclick = () => {
-                this.lightboxImg.src = url;
-                this.lightbox.style.display = "flex";
-                if (this.resetLightbox) {
-                    this.resetLightbox();
-                }
+                this.currentLightboxIndex = index;
+                this.showLightboxImage();
             };
+
+            // 完全重构右键菜单
+            box.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const existingMenu = document.getElementById("jdsc-asset-context-menu");
+                if (existingMenu) existingMenu.remove();
+
+                const menu = document.createElement("div");
+                menu.id = "jdsc-asset-context-menu";
+                menu.style.position = "fixed";
+                // 防御性编程：确保菜单不超出屏幕右侧和底部边界
+                const menuWidth = 120;
+                const menuHeight = 80;
+                let left = e.clientX;
+                let top = e.clientY;
+                if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth;
+                if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight;
+                menu.style.left = left + "px";
+                menu.style.top = top + "px";
+                menu.style.background = "#2a2a2a";
+                menu.style.border = "1px solid #444";
+                menu.style.borderRadius = "5px";
+                menu.style.padding = "5px 0";
+                menu.style.zIndex = "10005";
+                menu.style.boxShadow = "0 2px 10px rgba(0,0,0,0.5)";
+                menu.style.color = "#eee";
+                menu.style.minWidth = "120px";
+
+                const createItem = (text, onClick) => {
+                    const el = document.createElement("div");
+                    el.textContent = text;
+                    el.style.padding = "8px 15px";
+                    el.style.cursor = "pointer";
+                    el.style.fontSize = "14px";
+                    el.onmouseenter = () => el.style.background = "#3a3a3a";
+                    el.onmouseleave = () => el.style.background = "transparent";
+                    el.onclick = (ev) => {
+                        ev.stopPropagation();
+                        menu.remove();
+                        if (onClick) onClick();
+                    };
+                    return el;
+                };
+
+                const moveItem = createItem("📦 移动到...");
+                moveItem.style.position = "relative";
+                
+                const subMenu = document.createElement("div");
+                subMenu.style.display = "none";
+                subMenu.style.position = "absolute";
+                subMenu.style.left = "100%";
+                subMenu.style.top = "0";
+                subMenu.style.background = "#2a2a2a";
+                subMenu.style.border = "1px solid #444";
+                subMenu.style.borderRadius = "5px";
+                subMenu.style.padding = "5px 0";
+                subMenu.style.boxShadow = "0 2px 10px rgba(0,0,0,0.5)";
+                subMenu.style.minWidth = "120px";
+                
+                this.categories.forEach(cat => {
+                    if (cat.name === "预览+历史记录" || cat.name === item.category) return;
+                    const catItem = createItem("📁 " + cat.name, async () => {
+                        try {
+                            const res = await fetch("/jdsc/assets/move_asset", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    source_category: item.category,
+                                    filename: item.filename,
+                                    target_category: cat.name
+                                })
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                this.refresh();
+                            } else {
+                                alert("移动失败: " + data.error);
+                            }
+                        } catch (err) {
+                            console.error(err);
+                        }
+                    });
+                    subMenu.appendChild(catItem);
+                });
+                
+                if (subMenu.children.length === 0) {
+                    const emptyItem = document.createElement("div");
+                    emptyItem.textContent = "无其他分类";
+                    emptyItem.style.padding = "8px 15px";
+                    emptyItem.style.fontSize = "12px";
+                    emptyItem.style.color = "#888";
+                    subMenu.appendChild(emptyItem);
+                }
+
+                moveItem.onmouseenter = () => {
+                    moveItem.style.background = "#3a3a3a";
+                    subMenu.style.display = "block";
+                };
+                moveItem.onmouseleave = () => {
+                    moveItem.style.background = "transparent";
+                    subMenu.style.display = "none";
+                };
+                moveItem.appendChild(subMenu);
+                
+                const delItem = createItem("🗑️ 删除", () => {
+                    this.deleteAsset(item.category, item.filename);
+                });
+                delItem.style.color = "#ff5555";
+
+                menu.appendChild(moveItem);
+                menu.appendChild(delItem);
+
+                document.body.appendChild(menu);
+
+                const closeMenu = (ev) => {
+                    if (!menu.contains(ev.target)) {
+                        menu.remove();
+                        document.removeEventListener("click", closeMenu);
+                        document.removeEventListener("contextmenu", closeMenu);
+                    }
+                };
+                setTimeout(() => {
+                    document.addEventListener("click", closeMenu);
+                    document.addEventListener("contextmenu", closeMenu);
+                }, 0);
+            });
             
-            box.append(img, title, delBtn);
+            box.append(img, title);
             this.grid.append(box);
         });
     }
@@ -617,6 +790,9 @@ class AssetLibrary {
 }
 
 const manager = new AssetLibrary();
+
+// 素材库本次页面会话解锁状态（JS 变量随刷新归零，sessionStorage 不会）
+let _assetUnlocked = false;
 
 app.registerExtension({
     name: "jdsc.AssetLibrary",
@@ -831,14 +1007,76 @@ app.registerExtension({
             isDragging = false;
         });
 
-        globalBtn.onclick = (e) => {
+        // ---- 素材库密码保护 (与历史记录密码独立) ----
+        // 配置密码存 localStorage（持久），解锁状态用 JS 变量（刷新即清零）
+        const ASSET_PWD_KEY = "jdsc_asset_pwd";
+
+        async function checkAssetPassword() {
+            // 本次页面加载已解锁 → 直接通过
+            if (_assetUnlocked) return true;
+
+            const storedPwd = localStorage.getItem(ASSET_PWD_KEY);
+
+            // 从未设置过密码 → 引导设置
+            if (storedPwd === null) {
+                const newPwd = await asyncPromptPassword("首次使用素材库\n请设置一个访问密码（留空则不设密码）：");
+                if (newPwd === null) return false;
+                localStorage.setItem(ASSET_PWD_KEY, newPwd);
+                _assetUnlocked = true;
+                return true;
+            }
+
+            // 无密码模式 → 直接通过
+            if (storedPwd === "") {
+                _assetUnlocked = true;
+                return true;
+            }
+
+            // 有密码 → 验证
+            const input = await asyncPromptPassword("🔐 请输入素材库密码：");
+            if (input === null) return false;
+            if (input !== storedPwd) {
+                alert("密码错误！");
+                return false;
+            }
+            _assetUnlocked = true;
+            return true;
+        }
+
+        globalBtn.onclick = async (e) => {
             if (hasMoved) {
                 e.preventDefault();
                 e.stopPropagation();
                 return;
             }
-            manager.show();
+            const ok = await checkAssetPassword();
+            if (ok) manager.show();
         };
+
+        // 右键悬浮按钮 → 修改/清除密码
+        globalBtn.addEventListener("contextmenu", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const storedPwd = localStorage.getItem(ASSET_PWD_KEY);
+            const hasPassword = storedPwd !== null && storedPwd !== "";
+            const action = confirm(
+                hasPassword
+                    ? "素材库密码管理\n\n确定 → 修改密码\n取消 → 保持不变"
+                    : "素材库当前未设置密码\n\n确定 → 设置新密码\n取消 → 保持不变"
+            );
+            if (!action) return;
+            if (hasPassword) {
+                const old = await asyncPromptPassword("请先输入当前密码以确认身份：");
+                if (old === null) return;
+                if (old !== storedPwd) { alert("旧密码错误！"); return; }
+            }
+            const newPwd = await asyncPromptPassword("请输入新密码（留空则清除密码保护）：");
+            if (newPwd === null) return;
+            localStorage.setItem(ASSET_PWD_KEY, newPwd);
+            // 重置本次解锁状态
+            _assetUnlocked = false;
+            alert(newPwd === "" ? "✅ 密码已清除，素材库将不再需要密码。" : "✅ 密码已更新。");
+        });
 
         // 读取历史位置
         try {

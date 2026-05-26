@@ -11,10 +11,36 @@
     const KEY_TEXT_FAVS = "jdsc:text_favs";
     const KEY_MODAL_POS = "jdsc:textFavsModalPos";
     const KEY_LAST_CAT = "jdsc:textFavsLastCat"; // 记录上次选中的分类
+    const KEY_CUSTOM_CATS = "jdsc:tf_custom_cats"; // 记录用户创建的空分类
     let TEXT_FAVS_CACHE = null;
 
+    function getCustomCats() {
+        try { const s = localStorage.getItem(KEY_CUSTOM_CATS); return s ? JSON.parse(s) : []; } catch { return []; }
+    }
+    function saveCustomCats(cats) {
+        try { localStorage.setItem(KEY_CUSTOM_CATS, JSON.stringify(cats)); } catch {}
+    }
+    function addCustomCat(cat) {
+        const cats = new Set(getCustomCats());
+        cats.add(cat);
+        saveCustomCats(Array.from(cats));
+    }
+    function removeCustomCat(cat) {
+        const cats = new Set(getCustomCats());
+        cats.delete(cat);
+        saveCustomCats(Array.from(cats));
+    }
+    function renameCustomCat(oldCat, newCat) {
+        const cats = new Set(getCustomCats());
+        if (cats.has(oldCat)) {
+            cats.delete(oldCat);
+            cats.add(newCat);
+            saveCustomCats(Array.from(cats));
+        }
+    }
+
     // 预定义分类
-    const DEFAULT_CATEGORIES = ["全部", "SFW", "NSFW"];
+    const DEFAULT_CATEGORIES = ["SFW", "NSFW"];
 
     // 从服务器同步文本收藏数据
     async function syncTextFavsFromServer() {
@@ -110,9 +136,9 @@
 
     function getLastCategory() {
         try {
-            return localStorage.getItem(KEY_LAST_CAT) || "全部";
+            return localStorage.getItem(KEY_LAST_CAT) || "SFW";
         } catch {
-            return "全部";
+            return "SFW";
         }
     }
 
@@ -422,6 +448,30 @@
         title.textContent = '文本收藏夹';
         header.appendChild(title);
 
+        // 搜索框
+        let searchQuery = '';
+        const searchInput = document.createElement('input');
+        searchInput.placeholder = '🔍 搜索名称/内容...';
+        searchInput.style.cssText = `
+            background: rgba(0,0,0,0.3);
+            border: 1px solid #3a3f44;
+            border-radius: 6px;
+            color: #e6e9ec;
+            font-size: 13px;
+            padding: 5px 10px;
+            outline: none;
+            width: 200px;
+            transition: border-color 0.2s;
+        `;
+        searchInput.addEventListener('mousedown', e => e.stopPropagation());
+        searchInput.addEventListener('focus', () => searchInput.style.borderColor = '#1677ff');
+        searchInput.addEventListener('blur', () => searchInput.style.borderColor = '#3a3f44');
+        searchInput.addEventListener('input', () => {
+            searchQuery = searchInput.value.toLowerCase().trim();
+            renderGrid();
+        });
+        header.appendChild(searchInput);
+
         const closeBtn = document.createElement('div');
         closeBtn.className = 'jdsc-tf-close';
         closeBtn.innerHTML = '×';
@@ -445,28 +495,125 @@
             // 获取所有使用过的分类 (除了默认的)
             const usedCategories = new Set();
             Object.values(favs).forEach(item => {
-                if (item.category && !DEFAULT_CATEGORIES.includes(item.category)) {
+                if (item.category && !DEFAULT_CATEGORIES.includes(item.category) && item.category !== "全部") {
                     usedCategories.add(item.category);
                 }
             });
 
-            const allCategories = [...DEFAULT_CATEGORIES, ...Array.from(usedCategories).sort()];
+            // 加入用户创建的空分类
+            getCustomCats().forEach(cat => {
+                if (!DEFAULT_CATEGORIES.includes(cat) && cat !== "全部") {
+                    usedCategories.add(cat);
+                }
+            });
+
+            // 按照需求，将"全部"固定置于最下端
+            const allCategories = [...DEFAULT_CATEGORIES, ...Array.from(usedCategories).sort(), "全部"];
 
             allCategories.forEach(cat => {
                 const catItem = document.createElement('div');
-                catItem.textContent = cat;
-                const isActive = cat === currentCategory;
-                catItem.className = `jdsc-tf-cat-item${isActive ? ' active' : ''}`;
+                catItem.className = `jdsc-tf-cat-item${cat === currentCategory ? ' active' : ''}`;
+                catItem.style.position = 'relative';
+                catItem.style.display = 'flex';
+                catItem.style.alignItems = 'center';
+                catItem.style.justifyContent = 'space-between';
+
+                const catLabel = document.createElement('span');
+                catLabel.textContent = cat;
+                catLabel.style.flex = '1';
+                catLabel.style.overflow = 'hidden';
+                catLabel.style.textOverflow = 'ellipsis';
+                catItem.appendChild(catLabel);
+
+                // 操作按钮组（hover 时显示）
+                const actionsEl = document.createElement('span');
+                actionsEl.style.cssText = 'display:none; gap:4px; flex-shrink:0;';
+
+                // 改名按钮
+                const renameBtn = document.createElement('span');
+                renameBtn.title = '重命名';
+                renameBtn.textContent = '✏️';
+                renameBtn.style.cssText = 'cursor:pointer; font-size:11px; opacity:0.8;';
+                renameBtn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    const newName = prompt(`将分类 "${cat}" 重命名为:`, cat);
+                    if (!newName || !newName.trim() || newName.trim() === cat) return;
+                    const trimmed = newName.trim();
+                    // 更新所有收藏项的分类
+                    Object.values(favs).forEach(item => {
+                        if (item.category === cat) item.category = trimmed;
+                    });
+                    renameCustomCat(cat, trimmed);
+                    if (currentCategory === cat) currentCategory = trimmed;
+                    saveLastCategory(currentCategory);
+                    saveTextFavs(favs);
+                    renderCategories();
+                    renderGrid();
+                });
+                actionsEl.appendChild(renameBtn);
+
+                // 删除分类按钮（"全部" 不可删）
+                if (cat !== '全部') {
+                    const delBtn = document.createElement('span');
+                    delBtn.title = '删除此分类（仅删分类，不删词条）';
+                    delBtn.textContent = '🗑️';
+                    delBtn.style.cssText = 'cursor:pointer; font-size:11px; opacity:0.8;';
+                    delBtn.addEventListener('click', e => {
+                        e.stopPropagation();
+                        if (!confirm(`删除分类 "${cat}"？\n该分类下的词条将移入 "SFW"，不会丢失。`)) return;
+                        Object.values(favs).forEach(item => {
+                            if (item.category === cat) item.category = 'SFW';
+                        });
+                        removeCustomCat(cat);
+                        if (currentCategory === cat) currentCategory = 'SFW';
+                        saveLastCategory(currentCategory);
+                        saveTextFavs(favs);
+                        renderCategories();
+                        renderGrid();
+                    });
+                    actionsEl.appendChild(delBtn);
+                }
+
+                catItem.appendChild(actionsEl);
+
+                catItem.addEventListener('mouseenter', () => actionsEl.style.display = 'flex');
+                catItem.addEventListener('mouseleave', () => actionsEl.style.display = 'none');
 
                 catItem.addEventListener('click', () => {
                     currentCategory = cat;
                     saveLastCategory(cat);
-                    renderCategories(); // 重新渲染侧边栏以更新高亮
-                    renderGrid();       // 重新渲染网格
+                    renderCategories();
+                    renderGrid();
                 });
 
                 sidebar.appendChild(catItem);
             });
+
+            // 底部 "+ 新建分类" 按钮
+            const addCatBtn = document.createElement('div');
+            addCatBtn.style.cssText = `
+                padding: 8px 16px;
+                color: #1677ff;
+                font-size: 12px;
+                cursor: pointer;
+                margin: 4px 8px;
+                border-radius: 6px;
+                transition: background 0.2s;
+            `;
+            addCatBtn.textContent = '＋ 新建分类';
+            addCatBtn.addEventListener('mouseenter', () => addCatBtn.style.background = 'rgba(22,119,255,0.1)');
+            addCatBtn.addEventListener('mouseleave', () => addCatBtn.style.background = '');
+            addCatBtn.addEventListener('click', () => {
+                const newCat = prompt('请输入新分类名称:');
+                if (!newCat || !newCat.trim()) return;
+                const trimmed = newCat.trim();
+                addCustomCat(trimmed);
+                currentCategory = trimmed;
+                saveLastCategory(trimmed);
+                renderCategories();
+                renderGrid();
+            });
+            sidebar.appendChild(addCatBtn);
         }
 
         // --- 右侧网格 (收藏项) ---
@@ -483,15 +630,20 @@
                 const item = favs[name];
                 const itemCat = item.category || "未分类";
 
-                // 筛选逻辑
+                // 分类筛选
                 if (currentCategory === "全部") {
                     // 显示所有
                 } else if (currentCategory === "SFW") {
-                    // 显示SFW 或 空分类
                     if (itemCat !== "SFW" && itemCat !== "") return;
                 } else {
-                    // 精确匹配
                     if (itemCat !== currentCategory) return;
+                }
+
+                // 搜索过滤（匹配名称或内容）
+                if (searchQuery) {
+                    const nameMatch = name.toLowerCase().includes(searchQuery);
+                    const contentMatch = (item.content || '').toLowerCase().includes(searchQuery);
+                    if (!nameMatch && !contentMatch) return;
                 }
 
                 count++;
@@ -505,6 +657,15 @@
                     card.classList.add('nsfw');
                 } else if (itemCat === "SFW") {
                     card.classList.add('sfw');
+                } else if (itemCat === "NSFW+") {
+                    card.style.borderBottom = "3px solid #9254de";
+                } else if (itemCat && itemCat !== "全部" && itemCat !== "未分类") {
+                    let hash = 0;
+                    for (let i = 0; i < itemCat.length; i++) {
+                        hash = itemCat.charCodeAt(i) + ((hash << 5) - hash);
+                    }
+                    const hue = Math.abs(hash) % 360;
+                    card.style.borderBottom = `3px solid hsl(${hue}, 70%, 60%)`;
                 }
 
                 // 点击应用
@@ -618,6 +779,11 @@
                         usedCategories.add(f.category);
                     }
                 });
+                getCustomCats().forEach(c => {
+                    if (c && c.trim() && c !== "全部") {
+                        usedCategories.add(c);
+                    }
+                });
 
                 // 排序(把默认分类放前面)
                 const sortedCats = [];
@@ -663,6 +829,7 @@
                     ev.stopPropagation();
                     const newCat = prompt("请输入新分类名称:");
                     if (newCat && newCat.trim()) {
+                        addCustomCat(newCat.trim());
                         favs[name].category = newCat.trim();
                         saveTextFavs(favs);
                         renderCategories();
