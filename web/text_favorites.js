@@ -921,6 +921,13 @@
     // 初始化:从服务器同步数据
     syncTextFavsFromServer();
 
+    window.__jdsc_tf = {
+        openTextFavsModal,
+        getTextFavs,
+        getLastCategory,
+        saveTextFavs
+    };
+
     // 注册扩展
     function registerExtension() {
         if (!window.app || !window.app.registerExtension) {
@@ -932,7 +939,7 @@
             name: "jdsc.TextFavorites",
             async nodeCreated(node) {
                 const nodeType = node.comfyClass || node.type;
-                if (nodeType !== "WuhuoTextGate") return;
+                if (nodeType !== "WuhuoTextGate" && nodeType !== "WuhuoTextGatePro") return;
 
                 node.properties = node.properties || {};
                 const onConfigure = node.onConfigure;
@@ -960,6 +967,8 @@
                         }
                     }
                 };
+
+                if (nodeType === "WuhuoTextGatePro") return; // Pro版有自己的全新UI，跳过原生堆叠按钮注入
 
                 // 1. 提示词收藏夹按钮
                 const favsBtn = node.addWidget("button", "提示词收藏夹", null, () => {

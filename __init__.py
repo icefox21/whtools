@@ -217,6 +217,14 @@ if PromptServer is not None and web is not None:
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+    @PromptServer.instance.routes.get("/jdsc/enhance_presets")
+    async def jdsc_get_enhance_presets(request):
+        try:
+            presets = _load_enhance_presets()
+        except Exception:
+            presets = {"无": ""}
+        return web.json_response(presets)
+
     @PromptServer.instance.routes.get("/jdsc/settings")
     async def jdsc_get_settings(request):
         try:
@@ -257,7 +265,7 @@ class WuhuoTextGate:
                 "in_text": ("STRING", {"forceInput": True}),
                 "edit_text": ("STRING", {"multiline": True, "default": ""}),
                 "key_word": ("STRING", {"multiline": False, "default": ""}),
-                "enhance_mode": (list(_load_enhance_presets().keys()), {"default": "无"}),
+                "enhance_mode": ("STRING", {"multiline": False, "default": ""}),
             },
             "hidden": {
                 "node_id": "UNIQUE_ID",
@@ -302,15 +310,23 @@ class WuhuoTextGate:
         # 先添加 key_word
         if key_word and isinstance(key_word, str) and key_word.strip():
             user_prefix = key_word.strip()
-        # 再添加 enhance_mode 对应的提示词
-        if enhance_mode and enhance_mode != "无":
+        # 再添加 enhance_mode 对应的提示词 (支持多个，逗号分隔)
+        if enhance_mode and isinstance(enhance_mode, str) and enhance_mode.strip() and enhance_mode != "无":
             presets = _load_enhance_presets()
-            enhance_text = presets.get(enhance_mode, "")
-            if enhance_text and enhance_text.strip():
+            enhance_parts = [p.strip() for p in enhance_mode.split(",") if p.strip()]
+            combined_enhance = []
+            for part in enhance_parts:
+                if part in presets:
+                    t = presets.get(part, "")
+                    if t and t.strip():
+                        combined_enhance.append(t.strip())
+            
+            if combined_enhance:
+                final_enhance_text = ",".join(combined_enhance)
                 if user_prefix:
-                    user_prefix = user_prefix + "," + enhance_text.strip()
+                    user_prefix = user_prefix + "," + final_enhance_text
                 else:
-                    user_prefix = enhance_text.strip()
+                    user_prefix = final_enhance_text
 
         import random
         import json
@@ -453,6 +469,9 @@ class WuhuoTextGate:
             pass
         return (out,)
 
+class WuhuoTextGatePro(WuhuoTextGate):
+    pass
+
 class WuhuoIgnoreGroup:
     @classmethod
     def INPUT_TYPES(cls):
@@ -491,6 +510,8 @@ class WuhuoIgnoreGroup:
 
 NODE_CLASS_MAPPINGS.update({"WuhuoTextGate": WuhuoTextGate})
 NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGate": "📝文本+"})
+NODE_CLASS_MAPPINGS.update({"WuhuoTextGatePro": WuhuoTextGatePro})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGatePro": "📝文本++"})
 NODE_CLASS_MAPPINGS.update({"WuhuoIgnoreGroup": WuhuoIgnoreGroup})
 NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoIgnoreGroup": "忽略选择框"})
 NODE_CLASS_MAPPINGS.pop("WuhuoEcho", None)

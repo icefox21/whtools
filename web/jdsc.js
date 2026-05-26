@@ -1833,6 +1833,7 @@
               if (wStatus) wStatus.value = passing ? "🟢" : (manual ? "🟡" : "🔴");
             } catch { }
             try {
+              if (gate.type === "WuhuoTextGatePro") return; // Keep our sleek pro UI colors!
               if (typeof gate.__jdsc_base_bg === 'undefined') gate.__jdsc_base_bg = gate.bgcolor;
               if (typeof gate.__jdsc_base_color === 'undefined') gate.__jdsc_base_color = gate.color;
               const okEdit = !!edit;
@@ -2150,6 +2151,17 @@
     }
     if (wEdit) { const oc3 = wEdit.callback; wEdit.callback = (val) => { try { oc3?.call(node, val); node.properties = Object.assign({}, node.properties || {}, { __manual_text_for_pass: String(val || "") }); const g = getGraph(); if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true); } catch { } }; }
     // no execution mode enforcement here; colors are UI-only
+    // Enhance Mode Multi-Select UI
+    const wEnhance = findWidgetByKeyOrLabel(node, "enhance_mode");
+    if (wEnhance) {
+      const hasBtn = node.widgets.find(w => String(w.name||"").includes("多选强化词"));
+      if (!hasBtn && typeof node.addWidget === 'function') {
+        node.addWidget("button", "➕ 多选强化词", "...", () => {
+          openEnhanceModalShared(node, wEnhance);
+        });
+      }
+    }
+
     // no execution mode enforcement; color is UI-only
     const origFG = node.onDrawForeground;
     node.onDrawForeground = function (ctx) {
@@ -2175,33 +2187,316 @@
         let tx = (this.size ? this.size[0] - 64 : 120);
         let ty = ly - 8;
         try { /* skip STOP/PASS/EDIT label drawing */ } catch { }
-        try {
-          const we = findWidgetByKeyOrLabel(this, "enable_edit");
-          const wf = findWidgetByKeyOrLabel(this, "free_pass");
-          const onEdit = !!(we && we.value);
-          const onFree = !!(wf && wf.value);
-          if (onEdit && !onFree) { /* skip purple border drawing */ }
-          if (onFree) {
-            const we = findWidgetByKeyOrLabel(this, "edit_text");
-            const s = this.size || [160, 80];
-            const yv = we ? ((typeof we.y === 'number') ? we.y : (typeof we.last_y === 'number' ? we.last_y : 60)) : 60;
-            const pad = 8;
-            const x = 6;
-            const y = yv + pad;
-            const w = (s[0] - 12);
-            const h = Math.max(24, s[1] - y - 12);
-            ctx.save();
-            ctx.globalAlpha = 0.18;
-            ctx.fillStyle = '#888';
-            ctx.fillRect(x, y, w, h);
-            ctx.restore();
-          }
-        } catch { }
+        // Removed buggy translucent grey overlay that protrudes when node is resized
       } catch { }
     };
   }
+
+  function openEnhanceModalShared(node, wEnhance) {
+    fetch('/jdsc/enhance_presets').then(r => r.json()).then(presets => {
+      const existing = document.getElementById("jdsc-enhance-modal");
+      if (existing) existing.remove();
+      const currentVal = String(wEnhance.value || "");
+      const currentSelected = currentVal.split(",").map(s => s.trim()).filter(Boolean);
+      const overlay = document.createElement("div");
+      overlay.id = "jdsc-enhance-modal";
+      overlay.style.cssText = "position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:9999; display:flex; justify-content:center; align-items:center;";
+      const box = document.createElement("div");
+      box.style.cssText = "background:#222; border:1px solid #444; border-radius:8px; padding:20px; width:400px; max-width:90vw; color:#eee; box-shadow:0 4px 12px rgba(0,0,0,0.5); font-family:sans-serif;";
+      const title = document.createElement("h3");
+      title.textContent = "🚀 选择强化词 (可多选)";
+      title.style.cssText = "margin-top:0; margin-bottom:15px; border-bottom:1px solid #444; padding-bottom:10px;";
+      box.appendChild(title);
+      const list = document.createElement("div");
+      list.style.cssText = "display:flex; flex-wrap:wrap; gap:8px; max-height:50vh; overflow-y:auto; padding-bottom:10px;";
+      for (const key of Object.keys(presets)) {
+        if (key === "无" || !key) continue;
+        const isSelected = currentSelected.includes(key);
+        const lbl = document.createElement("label");
+        lbl.style.cssText = `display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:16px; cursor:pointer; font-size:13px; transition:all 0.2s; border:1px solid ${isSelected ? '#1677ff' : '#444'}; background:${isSelected ? 'rgba(22,119,255,0.2)' : '#333'};`;
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.value = key; cb.checked = isSelected; cb.style.display = "none";
+        cb.onchange = () => {
+          if (cb.checked) { lbl.style.border = "1px solid #1677ff"; lbl.style.background = "rgba(22,119,255,0.2)"; }
+          else { lbl.style.border = "1px solid #444"; lbl.style.background = "#333"; }
+        };
+        lbl.appendChild(cb); lbl.appendChild(document.createTextNode(key)); list.appendChild(lbl);
+      }
+      box.appendChild(list);
+      const btnRow = document.createElement("div");
+      btnRow.style.cssText = "display:flex; justify-content:flex-end; gap:10px; margin-top:15px; border-top:1px solid #444; padding-top:15px;";
+      const btnCancel = document.createElement("button");
+      btnCancel.textContent = "取消";
+      btnCancel.style.cssText = "padding:6px 16px; background:transparent; border:1px solid #666; color:#ccc; border-radius:4px; cursor:pointer;";
+      btnCancel.onclick = () => overlay.remove();
+      const btnOk = document.createElement("button");
+      btnOk.textContent = "确定";
+      btnOk.style.cssText = "padding:6px 16px; background:#1677ff; border:none; color:#fff; border-radius:4px; cursor:pointer;";
+      btnOk.onclick = () => {
+        const cbs = list.querySelectorAll("input[type=checkbox]:checked");
+        const keys = Array.from(cbs).map(c => c.value);
+        wEnhance.value = keys.join(",");
+        const g = window.app && window.app.graph; if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true);
+        overlay.remove();
+      };
+      btnRow.appendChild(btnCancel); btnRow.appendChild(btnOk); box.appendChild(btnRow); overlay.appendChild(box);
+      overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+      document.body.appendChild(overlay);
+    }).catch(err => {
+      alert("获取强化词失败: " + err);
+    });
+  }
+
+  function applyTextGateProUi(node) {
+    if (!node || node.__jdsc_pro_ui_bound) return; node.__jdsc_pro_ui_bound = true;
+
+    if (node.inputs) {
+        node.inputs.forEach(inp => { if (inp.name === "in_text") inp.label = " "; });
+    }
+    const min_w = 260;
+    if (node.size[0] < min_w) node.size[0] = min_w;
+    if (!node.__jdsc_resize_bound) {
+        node.__jdsc_resize_bound = true;
+        const origResize = node.onResize;
+        node.onResize = function(size) {
+            if (size[0] < min_w) size[0] = min_w;
+            if (origResize) origResize.call(this, size);
+        };
+    }
+
+    try {
+      const LG = window.LiteGraph || {};
+      const MODE_ALWAYS = (typeof LG.ALWAYS !== "undefined" ? LG.ALWAYS : 0);
+      if (node.mode !== undefined && node.mode !== MODE_ALWAYS) node.mode = MODE_ALWAYS;
+    } catch(e){}
+
+    const wEnable = findWidgetByKeyOrLabel(node, "enable_edit");
+    const wFree = findWidgetByKeyOrLabel(node, "free_pass");
+    const wRand = findWidgetByKeyOrLabel(node, "random_sfw");
+    const wEnhance = findWidgetByKeyOrLabel(node, "enhance_mode");
+    const wKeyWord = findWidgetByKeyOrLabel(node, "key_word");
+    const wEdit = findWidgetByKeyOrLabel(node, "edit_text");
+    const wStatus = findWidgetByKeyOrLabel(node, "status");
+
+    const hiddenWidgets = [wEnable, wFree, wRand, wEnhance, wKeyWord, wStatus];
+    hiddenWidgets.forEach((w, idx) => {
+      if (!w || w.__jdsc_hidden) return;
+      w.__jdsc_hidden = true;
+      w.disabled = true; // Prevent LiteGraph from triggering invisible widgets
+      // Use the first hidden widget to carve out 28px of physical space for our toolbar
+      // This naturally pushes wEdit down without fighting the DOM layout loop
+      w.computeSize = () => (idx === 0 ? [0, 28] : [0, 0]);
+      w.draw = function() { 
+          const el = w.inputEl || w.element;
+          if (el && el.style.visibility !== "hidden") {
+              el.style.setProperty("visibility", "hidden", "important");
+              el.style.setProperty("opacity", "0", "important");
+              el.style.setProperty("pointer-events", "none", "important");
+              if (el.style.display === "none") el.style.display = ""; // Stop fighting ComfyUI display
+          }
+          return false; 
+      }; 
+    });
+
+    const origFG = node.onDrawForeground;
+    node.onDrawForeground = function(ctx) {
+        if (origFG) origFG.call(this, ctx);
+        
+        // Draw Toolbar
+        const y = LiteGraph.NODE_TITLE_HEIGHT || 30;
+        const width = this.size[0];
+        
+        ctx.save();
+        ctx.fillStyle = "#1e1e1e";
+        ctx.fillRect(10, y, width - 20, 32);
+        ctx.strokeStyle = "#333";
+        ctx.strokeRect(10, y, width - 20, 32);
+
+        const isFree = wFree && wFree.value;
+        const isEdit = wEnable && wEnable.value;
+        const stateColor = isFree ? "#52c41a" : (isEdit ? "#ff4d4f" : "#faad14");
+        const stateText = isFree ? "🟢 直通" : (isEdit ? "🔴 拦截" : "🟡 手动");
+
+        ctx.fillStyle = stateColor;
+        ctx.font = "12px sans-serif";
+        ctx.fillText(stateText, 18, y + 21);
+
+        ctx.fillStyle = "#444";
+        ctx.fillRect(80, y + 6, 1, 20);
+
+        const startX = 85;
+        const endX = this.size[0] - 10;
+        const totalAvail = endX - startX;
+        const numIcons = 7;
+        let step = totalAvail / numIcons;
+        if (step > 30) step = 30; // Max spacing
+        
+        node.__jdsc_icon_hitboxes = [];
+
+        const icons = [
+            { id: 'fav', text: "📁" },
+            { id: 'paste', text: "📋" },
+            { id: 'clear', text: "🗑️" },
+            { id: 'save', text: "⭐" },
+            { id: 'enhance', text: "🚀" },
+            { id: 'kw', text: "🔑" },
+            { id: 'rand', text: "🎲" }
+        ];
+
+        ctx.font = "14px Arial";
+        icons.forEach((ic, i) => {
+            let cx = startX + i * step + 4;
+            node.__jdsc_icon_hitboxes.push({ id: ic.id, x: cx - 12, right: cx + 12 });
+            
+            let active = false;
+            let hlColor = "";
+            if (ic.id === 'enhance' && wEnhance && wEnhance.value && wEnhance.value !== "无") { active = true; hlColor = "rgba(22,119,255,0.2)"; ctx.fillStyle = "#1677ff"; }
+            else if (ic.id === 'kw' && wKeyWord && wKeyWord.value) { active = true; hlColor = "rgba(250,173,20,0.2)"; ctx.fillStyle = "#faad14"; }
+            else if (ic.id === 'rand' && wRand && wRand.value) { active = true; hlColor = "rgba(250,173,20,0.2)"; ctx.fillStyle = "#faad14"; }
+            else { ctx.fillStyle = "#aaa"; }
+
+            if (active && hlColor) {
+                ctx.save(); ctx.fillStyle = hlColor; ctx.fillRect(cx - 10, y + 4, 20, 24); ctx.restore();
+            }
+            ctx.fillText(ic.text, cx - 8, y + 21);
+        });
+
+        if (this.properties && this.properties.current_fav_name) {
+            ctx.fillStyle = "#888";
+            ctx.font = "10px sans-serif";
+            const nm = this.properties.current_fav_name;
+            const shortNm = nm.length > 8 ? nm.substring(0, 8) + '...' : nm;
+            ctx.fillText("🏷️ " + shortNm, 10, y - 4);
+        }
+
+        ctx.restore();
+    };
+
+    if (!node.__jdsc_pro_mouse_bound) {
+      node.__jdsc_pro_mouse_bound = true;
+      const origMouseDown = node.onMouseDown;
+      node.onMouseDown = function(event, pos, canvas) {
+        const x = pos[0];
+        const y = pos[1];
+        
+        const tbY = LiteGraph.NODE_TITLE_HEIGHT || 30;
+        if (y >= tbY && y <= tbY + 32) {
+                if (x >= 10 && x < 80) {
+                    const isFree = wFree && wFree.value;
+                    const isEdit = wEnable && wEnable.value;
+                    if (isFree) {
+                        if(wFree) wFree.value = false;
+                        if(wEnable) wEnable.value = true;
+                    } else if (isEdit) {
+                        if(wEnable) wEnable.value = false;
+                        if(wFree) wFree.value = false;
+                    } else {
+                        if(wFree) wFree.value = true;
+                        if(wEnable) wEnable.value = false;
+                    }
+                    try { if(wEnable && wEnable.callback) wEnable.callback(wEnable.value); } catch(e){}
+                    try { if(wFree && wFree.callback) wFree.callback(wFree.value); } catch(e){}
+                    app.graph.setDirtyCanvas(true,true);
+                    return true;
+                }
+
+                if (node.__jdsc_icon_hitboxes) {
+                    for (let box of node.__jdsc_icon_hitboxes) {
+                        if (x >= box.x && x < box.right) {
+                            if (box.id === 'fav') {
+                                try { if(window.__jdsc_tf) window.__jdsc_tf.openTextFavsModal(this); } catch(e){}
+                            } else if (box.id === 'paste') {
+                                navigator.clipboard.readText().then(text => {
+                                    if(wEdit) { 
+                                        wEdit.value = text; 
+                                        if (wEdit.inputEl) wEdit.inputEl.value = text;
+                                        if (wEdit.element) wEdit.element.value = text;
+                                        try { if(wEdit.callback) wEdit.callback(text); } catch(e){}
+                                    }
+                                    this.properties.current_fav_name = "";
+                                    app.graph.setDirtyCanvas(true,true);
+                                }).catch(()=>{});
+                            } else if (box.id === 'clear') {
+                                if(wEdit) { 
+                                    wEdit.value = ""; 
+                                    if (wEdit.inputEl) wEdit.inputEl.value = "";
+                                    if (wEdit.element) wEdit.element.value = "";
+                                    try { if(wEdit.callback) wEdit.callback(""); } catch(e){}
+                                }
+                                this.properties.current_fav_name = "";
+                                app.graph.setDirtyCanvas(true,true);
+                            } else if (box.id === 'save') {
+                                const currentText = (wEdit && wEdit.inputEl) ? wEdit.inputEl.value : (wEdit ? wEdit.value : "");
+                                if(!currentText || !currentText.trim()) { alert("空文本 (收藏需要填写内容)\n\n注: 星号⭐用于将当前文本保存到系统的文本收藏库中。"); return true; }
+                                const defaultName = this.properties.current_fav_name || "";
+                                const name = prompt("请输入收藏名称:", defaultName);
+                                if(name && window.__jdsc_tf) {
+                                    const favs = window.__jdsc_tf.getTextFavs();
+                                    let cat = "SFW";
+                                    if (name.trim() === defaultName && favs[name.trim()]) { cat = favs[name.trim()].category; }
+                                    else {
+                                        let defaultCat = window.__jdsc_tf.getLastCategory();
+                                        if (defaultCat === "全部") defaultCat = "SFW";
+                                        let inputCat = prompt("请输入分类 (例如: NSFW, 人物, SFW):", defaultCat);
+                                        if (inputCat !== null) cat = inputCat;
+                                    }
+                                    favs[name.trim()] = { content: currentText, category: cat.trim() || "SFW", tags: [] };
+                                    window.__jdsc_tf.saveTextFavs(favs);
+                                    this.properties.current_fav_name = name.trim();
+                                    app.graph.setDirtyCanvas(true,true);
+                                }
+                            } else if (box.id === 'enhance') {
+                                openEnhanceModalShared(this, wEnhance);
+                            } else if (box.id === 'kw') {
+                                const kw = prompt("请输入固定前缀 (KeyWord):", wKeyWord ? wKeyWord.value : "");
+                                if(kw !== null && wKeyWord) {
+                                    wKeyWord.value = kw;
+                                    if (wKeyWord.inputEl) wKeyWord.inputEl.value = kw;
+                                    if (wKeyWord.element) wKeyWord.element.value = kw;
+                                    app.graph.setDirtyCanvas(true,true);
+                                }
+                            } else if (box.id === 'rand') {
+                                if(wRand) { wRand.value = !wRand.value; app.graph.setDirtyCanvas(true,true); }
+                            }
+                            return true;
+                        }
+                    }
+                }
+                
+                // Unconditionally eat clicks in the toolbar area to prevent hidden widgets from hijacking
+                if (x >= 10 && x < this.size[0] - 10) return true;
+            }
+        if (origMouseDown) return origMouseDown.call(this, event, pos, canvas);
+        return false;
+      };
+    }
+
+    if (wEdit) {
+      if (wEdit.inputEl) wEdit.inputEl.style.resize = "none";
+      if (wEdit.element) wEdit.element.style.resize = "none";
+      const oc3 = wEdit.callback;
+      wEdit.callback = (val) => {
+        try { oc3?.call(node, val); node.properties = Object.assign({}, node.properties || {}, { __manual_text_for_pass: String(val || "") }); const g = getGraph(); if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true); } catch { }
+      };
+    }
+
+    setInterval(() => {
+        try {
+            if (wEdit) {
+                const el = wEdit.inputEl || wEdit.element;
+                if (el && el.style.resize !== "none") {
+                    el.style.setProperty("resize", "none", "important");
+                }
+            }
+        } catch{}
+    }, 400);
+  }
+
   function applyTextGateUiToExisting() {
-    const g = getGraph(); const arr = (g && (g._nodes || g.nodes)) || []; arr.forEach(n => { if (String(n.type || "").includes("WuhuoTextGate")) { try { applyTextGateUi(n); } catch { } } });
+    const g = getGraph(); const arr = (g && (g._nodes || g.nodes)) || []; arr.forEach(n => {
+      if (n.type === "WuhuoTextGate") { try { applyTextGateUi(n); } catch { } }
+      if (n.type === "WuhuoTextGatePro") { try { applyTextGateProUi(n); } catch { } }
+    });
   }
   const _jdscUiBindTick = setInterval(() => { try { applyTextGateUiToExisting(); } catch { } }, 800);
   function applyModalVisibility() {
@@ -2357,12 +2652,18 @@
           try {
             const g = getGraph();
             const arr = (g && (g._nodes || g.nodes)) || [];
-            arr.forEach(n => { if (String(n.type || "").includes("WuhuoTextGate")) { try { applyTextGateUi(n); } catch { } } });
+            arr.forEach(n => { 
+                if (n.type === "WuhuoTextGate") { try { applyTextGateUi(n); } catch { } }
+                if (n.type === "WuhuoTextGatePro") { try { applyTextGateProUi(n); } catch { } }
+            });
             const gg = getGraph(); if (gg && typeof gg.setDirtyCanvas === 'function') gg.setDirtyCanvas(true, true);
           } catch { }
         },
         async nodeCreated(node) {
-          try { if (String(node.type || "").includes("WuhuoTextGate")) applyTextGateUi(node); } catch { }
+          try { 
+              if (node.type === "WuhuoTextGate") applyTextGateUi(node); 
+              if (node.type === "WuhuoTextGatePro") applyTextGateProUi(node);
+          } catch { }
         }
       });
     }
