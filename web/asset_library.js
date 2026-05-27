@@ -250,7 +250,26 @@ class AssetLibrary {
         this.lightbox = document.createElement("div");
         this.lightbox.className = "jdsc-asset-lightbox";
         this.lightbox.style.display = "none";
-        
+        // 幻灯片核心状态引擎
+        this.isSlideshowActive = false;
+        this.slideshowTimer = null;
+        this.slideshowInterval = 3000;
+        this.stopSlideshow = () => {
+            if (this.slideshowTimer) clearTimeout(this.slideshowTimer);
+            this.isSlideshowActive = false;
+            if (this.playBtn) this.playBtn.innerHTML = "▶ 播放幻灯片";
+        };
+        this.startSlideshow = () => {
+            if (this.currentDisplayItems.length <= 1) return;
+            this.isSlideshowActive = true;
+            if (this.playBtn) this.playBtn.innerHTML = "⏸ 暂停幻灯片";
+            this.nextLightboxImage();
+        };
+        this.toggleSlideshow = () => {
+            if (this.isSlideshowActive) this.stopSlideshow();
+            else this.startSlideshow();
+        };
+
         // 关闭按钮
         const lightboxCloseBtn = document.createElement("button");
         lightboxCloseBtn.innerHTML = "✖";
@@ -267,6 +286,7 @@ class AssetLibrary {
         lightboxCloseBtn.style.cursor = "pointer";
         lightboxCloseBtn.style.zIndex = "10001";
         lightboxCloseBtn.onclick = () => {
+            this.stopSlideshow(); // 强行阻断幻灯片，防内存泄漏
             this.lightbox.style.display = "none";
         };
         
@@ -308,20 +328,51 @@ class AssetLibrary {
                     scale = ratio;
                     updateTransform();
                 }
+                
+                // 幻灯片引擎：图片完全加载并渲染后，才开始安全的倒计时
+                if (this.slideshowTimer) clearTimeout(this.slideshowTimer);
+                if (this.isSlideshowActive) {
+                    this.slideshowTimer = setTimeout(() => {
+                        // 双重安全校验：确保在倒计时结束时，用户没有关闭弹窗或手动停止
+                        if (this.isSlideshowActive && this.lightbox.style.display === "flex") {
+                            this.nextLightboxImage();
+                        }
+                    }, this.slideshowInterval);
+                }
             };
         };
 
-        // 滚轮无极缩放
+        let wheelLock = false;
+        // 滚轮空间感知：图片上缩放，背景上翻页
         this.lightbox.addEventListener("wheel", (e) => {
             e.preventDefault();
-            const zoomAmount = 0.1;
-            if (e.deltaY < 0) {
-                scale *= (1 + zoomAmount);
-            } else {
-                scale *= (1 - zoomAmount);
+            
+            if (e.target === this.lightboxImg) {
+                // 实体空间：缩放图片
+                const zoomAmount = 0.1;
+                if (e.deltaY < 0) {
+                    scale *= (1 + zoomAmount);
+                } else {
+                    scale *= (1 - zoomAmount);
+                }
+                scale = Math.max(0.1, Math.min(scale, 10)); // 限制缩放比例 (10% ~ 1000%)
+                updateTransform();
+            } else if (e.target === this.lightbox) {
+                // 虚空背景：滚动翻页
+                if (wheelLock) return;
+                wheelLock = true;
+                
+                this.stopSlideshow(); // 手动接管，夺回控制权
+                
+                if (e.deltaY > 0) {
+                    this.nextLightboxImage();
+                } else {
+                    this.prevLightboxImage();
+                }
+                
+                // 强制冷却锁，防抖 (300ms)
+                setTimeout(() => { wheelLock = false; }, 300);
             }
-            scale = Math.max(0.1, Math.min(scale, 10)); // 限制缩放比例 (10% ~ 1000%)
-            updateTransform();
         });
 
         // 拖拽平移
@@ -348,6 +399,7 @@ class AssetLibrary {
         // 点击背景关闭预览
         this.lightbox.addEventListener("click", (e) => {
             if (e.target === this.lightbox) {
+                this.stopSlideshow();
                 this.lightbox.style.display = "none";
             }
         });
@@ -360,6 +412,7 @@ class AssetLibrary {
         prevBtn.onmouseleave = () => prevBtn.style.background = "rgba(0,0,0,0.5)";
         prevBtn.onclick = (e) => {
             e.stopPropagation();
+            this.stopSlideshow(); // 手动翻页打断轮播
             this.prevLightboxImage();
         };
 
@@ -370,20 +423,57 @@ class AssetLibrary {
         nextBtn.onmouseleave = () => nextBtn.style.background = "rgba(0,0,0,0.5)";
         nextBtn.onclick = (e) => {
             e.stopPropagation();
+            this.stopSlideshow(); // 手动翻页打断轮播
             this.nextLightboxImage();
         };
 
-        this.lightbox.append(this.lightboxImg, lightboxCloseBtn, prevBtn, nextBtn);
+        // 幻灯片底部控制台 (UI 最下方最中间)
+        const slideshowBar = document.createElement("div");
+        slideshowBar.style.cssText = "position:absolute; bottom:30px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.75); padding:8px 20px; border-radius:30px; display:flex; gap:15px; align-items:center; z-index:10001; backdrop-filter:blur(8px); box-shadow:0 4px 15px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1);";
+        
+        // 关键修复：阻止控制台的 mousedown 事件向上冒泡，防止被外层拖拽逻辑的 preventDefault() 拦截，导致原生下拉菜单无法弹出
+        slideshowBar.addEventListener("mousedown", (e) => e.stopPropagation());
+        
+        this.playBtn = document.createElement("button");
+        this.playBtn.innerHTML = "▶ 播放幻灯片";
+        this.playBtn.style.cssText = "background:transparent; color:#fff; border:none; cursor:pointer; font-size:15px; display:flex; align-items:center; gap:5px; font-weight:bold; padding:0;";
+        this.playBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.toggleSlideshow();
+        };
+
+        const speedSelect = document.createElement("select");
+        speedSelect.style.cssText = "background:rgba(255,255,255,0.1); color:#fff; border:1px solid rgba(255,255,255,0.2); border-radius:6px; padding:3px 8px; outline:none; cursor:pointer; font-size:13px;";
+        [1, 2, 3, 5, 8, 10].forEach(sec => {
+            const opt = document.createElement("option");
+            opt.value = sec * 1000;
+            opt.textContent = `${sec} 秒`;
+            if (sec === 3) opt.selected = true;
+            opt.style.color = "#000";
+            speedSelect.appendChild(opt);
+        });
+        speedSelect.onchange = (e) => {
+            this.slideshowInterval = parseInt(e.target.value);
+        };
+        speedSelect.onclick = (e) => e.stopPropagation();
+
+        slideshowBar.appendChild(this.playBtn);
+        slideshowBar.appendChild(speedSelect);
+
+        this.lightbox.append(this.lightboxImg, lightboxCloseBtn, prevBtn, nextBtn, slideshowBar);
         document.body.appendChild(this.lightbox);
 
         // Global ESC and Arrow Keys
         window.addEventListener("keydown", (e) => {
             if (this.lightbox.style.display === "flex") {
                 if (e.key === "Escape") {
+                    this.stopSlideshow();
                     this.lightbox.style.display = "none";
                 } else if (e.key === "ArrowLeft") {
+                    this.stopSlideshow();
                     this.prevLightboxImage();
                 } else if (e.key === "ArrowRight") {
+                    this.stopSlideshow();
                     this.nextLightboxImage();
                 }
             } else if (e.key === "Escape" && this.modal.style.display === "flex") {
@@ -451,17 +541,37 @@ class AssetLibrary {
             
             labelContainer.append(label);
             
+            const rightContainer = document.createElement("div");
+            rightContainer.style.display = "flex";
+            rightContainer.style.alignItems = "center";
+            rightContainer.style.gap = "10px"; // 拉开 X 与数字标签的距离
+            
+            let removeBtn = null;
+            
             // 允许删除自定义分类
             if (name !== "全部" && name !== "预览+历史记录") {
-                const removeBtn = document.createElement("span");
+                removeBtn = document.createElement("span");
                 removeBtn.innerHTML = "✖";
-                removeBtn.style.color = "#ff4444";
+                removeBtn.style.color = "#8a9199";
                 removeBtn.style.cursor = "pointer";
                 removeBtn.style.fontSize = "12px";
-                removeBtn.style.display = "none";
+                removeBtn.style.opacity = "0"; // 使用透明度过渡，防止宽度突变导致排版跳跃
+                removeBtn.style.transition = "all 0.2s ease";
+                removeBtn.style.padding = "4px 6px"; // 增大安全点击热区
+                removeBtn.style.borderRadius = "4px";
+                
+                removeBtn.onmouseenter = () => {
+                    removeBtn.style.color = "#ff4d4f";
+                    removeBtn.style.background = "rgba(255, 77, 79, 0.1)";
+                };
+                removeBtn.onmouseleave = () => {
+                    removeBtn.style.color = "#8a9199";
+                    removeBtn.style.background = "transparent";
+                };
+
                 removeBtn.onclick = async (e) => {
                     e.stopPropagation();
-                    if (!confirm(`确定要移除分类 [${name}] 吗？(仅移除配置，不删物理文件)`)) return;
+                    if (!confirm(`确定要移除分类 [${name}] 吗？\n(此操作仅移除侧边栏快捷入口，绝对不会删除您的本地物理文件！)`)) return;
                     const res = await fetch("/jdsc/assets/remove_dir", {
                         method: "POST",
                         headers: {"Content-Type": "application/json"},
@@ -475,16 +585,20 @@ class AssetLibrary {
                         alert(data.error);
                     }
                 };
-                item.onmouseenter = () => removeBtn.style.display = "inline";
-                item.onmouseleave = () => removeBtn.style.display = "none";
-                labelContainer.append(removeBtn);
+                item.onmouseenter = () => removeBtn.style.opacity = "1";
+                item.onmouseleave = () => removeBtn.style.opacity = "0";
             }
             
             const badge = document.createElement("span");
             badge.className = "jdsc-asset-cat-badge";
             badge.textContent = count;
             
-            item.append(labelContainer, badge);
+            if (removeBtn) {
+                rightContainer.append(removeBtn);
+            }
+            rightContainer.append(badge);
+            
+            item.append(labelContainer, rightContainer);
             item.onclick = () => {
                 this.currentCategory = name;
                 this.renderSidebar();
@@ -748,11 +862,37 @@ class AssetLibrary {
                 };
                 moveItem.appendChild(subMenu);
                 
+                const copyItem = createItem("📋 复制图片 (供节点加载)", async () => {
+                    if (!navigator.clipboard || !navigator.clipboard.write) {
+                        alert("⚠ 复制失败：您的浏览器环境不支持剪贴板高级写入 API。\n\n安全限制：此功能强制要求使用 HTTPS 协议或 localhost 访问 ComfyUI 才能生效。");
+                        return;
+                    }
+                    try {
+                        const url = `/jdsc/assets/image?category=${encodeURIComponent(item.category)}&filename=${encodeURIComponent(item.filename)}`;
+                        const response = await fetch(url);
+                        const blob = await response.blob();
+                        await navigator.clipboard.write([
+                            new ClipboardItem({ [blob.type]: blob })
+                        ]);
+                        try {
+                            const tip = document.createElement('div');
+                            tip.textContent = "✓ 图片已提取进剪贴板，可直接在工作流按 Ctrl+V 粘贴！";
+                            tip.style.cssText = 'position:fixed;top:20px;right:20px;background:#52c41a;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
+                            document.body.appendChild(tip);
+                            setTimeout(() => tip.remove(), 2500);
+                        } catch(e){}
+                    } catch (err) {
+                        console.error("复制失败:", err);
+                        alert("⚠ 复制图片失败，请检查浏览器权限。");
+                    }
+                });
+
                 const delItem = createItem("🗑️ 删除", () => {
                     this.deleteAsset(item.category, item.filename);
                 });
                 delItem.style.color = "#ff5555";
 
+                menu.appendChild(copyItem);
                 menu.appendChild(moveItem);
                 menu.appendChild(delItem);
 

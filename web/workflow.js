@@ -18,7 +18,7 @@
   // 从服务器同步设置（包括快捷键、模态框位置等）
   async function syncSettingsFromServer() {
     try {
-      const res = await fetch('/jdsc/settings');
+      const res = await fetch('/jdsc/settings?t=' + Date.now());
       if (res && res.ok) {
         const data = await res.json();
         if (data && typeof data === 'object') {
@@ -30,7 +30,7 @@
 
   async function syncFoldersFromServer() {
     try {
-      const res = await fetch('/jdsc/workflow_folders');
+      const res = await fetch('/jdsc/workflow_folders?t=' + Date.now());
       if (res && res.ok) {
         const data = await res.json();
         WF_FOLDERS_CACHE = Array.isArray(data) ? data : [];
@@ -40,7 +40,7 @@
 
   async function syncFavsFromServer() {
     try {
-      const res = await fetch('/jdsc/workflow_favorites');
+      const res = await fetch('/jdsc/workflow_favorites?t=' + Date.now());
       if (res && res.ok) {
         const data = await res.json();
         WF_FAVS_CACHE = (data && typeof data === 'object') ? data : {};
@@ -280,7 +280,7 @@
       .jdsc-wf-subfolder{margin:6px 0}
       .jdsc-wf-subfolder-header{display:flex;align-items:center;padding:8px 12px;background:#24282d;border-radius:4px;cursor:pointer;user-select:none;transition:background .2s;border:1px solid #2e3338}
       .jdsc-wf-subfolder-header:hover{background:#2d3238}
-      .jdsc-wf-item{position:relative;padding:12px 14px;margin:6px 0;background:#252a30;border-radius:8px;cursor:pointer;transition:all .2s;border:1px solid #31373d;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
+      .jdsc-wf-item{position:relative;padding:12px 14px;margin:6px 0;background:#252a30;border-radius:8px;cursor:pointer;transition:all .2s;border:1px solid #31373d;box-shadow:0 2px 4px rgba(0,0,0,0.1);content-visibility:auto;contain-intrinsic-size:72px;}
       .jdsc-wf-item:hover{background:#2e343a;border-color:#4a5159;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.2)}
       .jdsc-wf-item-name{font-size:14px;font-weight:500;color:#e6e9ec;margin-bottom:6px;padding-right:64px;line-height:1.4}
       .jdsc-wf-item-path{font-size:11px;color:#8a9199;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace}
@@ -292,7 +292,7 @@
       .jdsc-wf-btn-star.active{color:#fadb14;background:rgba(250,219,20,0.1)}
       .jdsc-wf-btn-star.active:hover{color:#ffec3d;background:rgba(250,219,20,0.2)}
       .jdsc-wf-btn-delete:hover{color:#ff4d4f;background:rgba(255,77,79,0.1)}
-      .jdsc-wf-fav-item{padding:2px 8px;margin:4px 0;background:#252a30;border-radius:8px;cursor:pointer;position:relative;border:1px solid #31373d;transition:all .2s;box-shadow:0 2px 4px rgba(0,0,0,0.1);min-height:calc(1.4em * 3);display:flex;align-items:center;}
+      .jdsc-wf-fav-item{padding:2px 8px;margin:4px 0;background:#252a30;border-radius:8px;cursor:pointer;position:relative;border:1px solid #31373d;transition:all .2s;box-shadow:0 2px 4px rgba(0,0,0,0.1);min-height:calc(1.4em * 3);display:flex;align-items:center;content-visibility:auto;contain-intrinsic-size:52px;}
       .jdsc-wf-fav-item:hover{background:#2e343a;border-color:#4a5159;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.2)}
       .jdsc-wf-fav-name{font-size:14px;color:#e6e9ec;font-weight:600;margin-bottom:0;cursor:pointer;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-wrap:break-word;flex:1;}
       .jdsc-wf-fav-original{font-size:11px;color:#8a9199;margin-bottom:4px}
@@ -695,6 +695,7 @@
 
       // 渲染文件
       let filtered = searchKw ? files.filter(f => f.name.toLowerCase().includes(searchKw) || f.path.toLowerCase().includes(searchKw)) : files;
+      const frag = document.createDocumentFragment();
       for (const file of filtered) {
         const item = createEl("div", "jdsc-wf-item");
         const itemName = createEl("div", "jdsc-wf-item-name", file.name);
@@ -741,8 +742,9 @@
           openWorkflowInCanvas(file.path);
           if (globalToggleFn) globalToggleFn();
         };
-        subfolderContent.appendChild(item);
+        frag.appendChild(item);
       }
+      subfolderContent.appendChild(frag);
 
       subfolderDiv.appendChild(subfolderContent);
     }
@@ -823,14 +825,29 @@
     addFolderBtn.style.height = "28px";
     addFolderBtn.style.padding = "4px 12px";
     addFolderBtn.onclick = async () => {
-      const path = prompt("请输入文件夹路径：\n(相对于ComfyUI根目录，或绝对路径)");
-      if (!path) return;
-      const name = prompt("请输入文件夹别名：", "我的工作流");
-      if (!name) return;
+      const rawPath = prompt("请输入文件夹的物理绝对路径：\n(支持跨盘符，如 D:\\ComfyUI\\my_workflows 或 /Volumes/Mac/Workflows)");
+      if (!rawPath || !rawPath.trim()) return;
+      // 核心防御：强制统一跨平台路径分隔符，并去除尾部斜杠，彻底消灭 \ 和 / 混用导致的路径重复或解析失败
+      const path = rawPath.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+      
       const folders = getFolders();
+      // 核心防御：防呆设计，拦截重复路径
+      if (folders.some(f => f.path.toLowerCase() === path.toLowerCase())) {
+         alert("⚠ 添加失败：该文件夹路径已存在于列表中！");
+         return;
+      }
+
+      const rawName = prompt("请为该文件夹设置一个显示别名：", "我的工作流");
+      if (!rawName || !rawName.trim()) return;
+      const name = rawName.trim();
+      
       folders.push({ id: Date.now().toString(36), name, path, collapsed: false, builtin: false });
       saveWF(KEY_WF_FOLDERS, folders);
       refresh();
+      // 主动触发同步到后端
+      if (typeof syncFoldersFromServer === 'function') {
+         syncFoldersFromServer();
+      }
     };
     searchBar.appendChild(searchContainer);
     searchBar.appendChild(addFolderBtn);
@@ -851,7 +868,7 @@
     };
     const btnAddCurrent = createEl("div", "jdsc-btn", "收藏当前工作流");
     btnAddCurrent.style.cssText = "height: 32px !important; padding: 0 14px !important; border-radius: 6px !important; background: #2a2e32 !important; color: #b0b6bb !important; display: inline-flex !important; align-items: center !important; cursor: pointer !important; white-space: nowrap !important; font-size: 13px !important; margin: 0 !important; border: none !important; line-height: normal !important; box-sizing: border-box !important;";
-    btnAddCurrent.onclick = () => {
+    btnAddCurrent.onclick = async () => {
       try {
         console.log('[工作流+] ========== 收藏当前工作流触发 ==========');
 
@@ -877,8 +894,53 @@
         }
 
         if (!path) {
-          alert("⚠ 无法收藏：无法获取工作流路径\n\n请确保工作流已通过 Workflow+ 打开。");
-          return;
+          const customName = prompt("⚠ 发现您当前的工作流可能是拖拽导入或原生加载的，尚未绑定本地路径。\n\n请输入一个名称，我们将为您瞬间在本地生成该文件并强制加入收藏：", "未命名工作流_" + Math.floor(Date.now()/1000));
+          if (!customName) return;
+          
+          let targetDir = "user/default/workflows";
+          const folders = getFolders();
+          if (folders && folders.length > 0) {
+             targetDir = folders[0].path;
+          }
+          
+          nameNoExt = customName.trim().replace(/\.json$/i, '');
+          fileName = nameNoExt + ".json";
+          path = targetDir.replace(/[\\\/]+$/, '') + "/" + fileName;
+          
+          let workflowData = {};
+          if (window.app && window.app.graph) {
+             workflowData = window.app.graph.serialize();
+          } else {
+             alert("无法提取当前画布上的工作流数据！");
+             return;
+          }
+          
+          const saveRes = await fetch('/jdsc/workflow_save', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+                path: path,
+                content: JSON.stringify(workflowData, null, 2)
+             })
+          });
+          
+          if (!saveRes.ok) {
+             alert("物理落盘保存失败，请检查控制台报错！");
+             return;
+          }
+          
+          console.log('[工作流+] 智能反向提取落盘成功，新路径:', path);
+          
+          // 强制反向绑定到当前画布，赋予其合法身份
+          if (window.app && window.app.graph) {
+             window.app.graph.jdsc_path = path;
+             window.app.graph.jdsc_name = nameNoExt;
+          }
+          
+          // 触发后端的文件夹结构同步，因为新增了物理文件
+          if (typeof syncFoldersFromServer === 'function') {
+             await syncFoldersFromServer();
+          }
         }
 
         const favs = getWFFavs();
@@ -1864,5 +1926,13 @@
       return originalClear.apply(this, arguments);
     };
   }
+
+  // Watchdog 替代方案：当用户从外部操作系统（如 Windows 资源管理器）操作完文件，切回浏览器时触发静默刷新
+  window.addEventListener('focus', () => {
+    const modal = document.querySelector('.jdsc-wf-modal');
+    if (modal && modal.style.display !== 'none' && typeof globalRefreshFn === 'function') {
+      globalRefreshFn();
+    }
+  });
 
 })();
