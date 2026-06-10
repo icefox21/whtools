@@ -1301,13 +1301,23 @@ app.registerExtension({
         };
 
 
+        const origGetExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
         // 右键菜单
         nodeType.prototype.getExtraMenuOptions = function (canvas, options) {
+            options = options || [];
             const self = this;
+            let r;
+            if (origGetExtraMenuOptions) {
+                try {
+                    r = origGetExtraMenuOptions.apply(this, arguments);
+                } catch (err) {
+                    console.error("[whtools] 执行父类 getExtraMenuOptions 报错:", err);
+                }
+            }
 
             // 获取鼠标位置
-            const mousePos = canvas.graph_mouse;
-            if (!mousePos) return;
+            const mousePos = canvas ? canvas.graph_mouse : null;
+            if (!mousePos) return r;
 
             const x = mousePos[0] - this.pos[0];
             const y = mousePos[1] - this.pos[1];
@@ -1323,10 +1333,8 @@ app.registerExtension({
             if (inImageArea && this._previewIndex >= 0 && this._previewIndex < this._loadedImages.length) {
                 const item = this._loadedImages[this._previewIndex];
                 this.addImageMenuOptions(options, item);
-                return;
+                return r;
             }
-
-
 
             // 网格模式下的右键菜单（仅当点击了具体图片时）
             if (inImageArea && this._loadedImages.length > 0) {
@@ -1371,7 +1379,7 @@ app.registerExtension({
                 if (index >= 0 && index < Math.min(this._loadedImages.length, cols * rows) && col >= 0 && col < cols) {
                     const item = this._loadedImages[index];
                     this.addImageMenuOptions(options, item);
-                    return;
+                    return r;
                 }
             }
 
@@ -1404,6 +1412,8 @@ app.registerExtension({
                     nodeRef.refreshHistory();
                 }
             });
+
+            return r;
         };
 
         // 添加图片菜单选项

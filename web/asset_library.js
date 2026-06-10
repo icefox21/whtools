@@ -1260,8 +1260,14 @@ app.registerExtension({
             console.log("[jdsc] 成功注入 LGraphNode.prototype.getExtraMenuOptions 拦截器");
             const origGetExtraMenuOptions = LGraphNodeClass.prototype.getExtraMenuOptions;
             LGraphNodeClass.prototype.getExtraMenuOptions = function (canvas, options) {
+                options = options || [];
+                let r;
                 if (origGetExtraMenuOptions) {
-                    origGetExtraMenuOptions.apply(this, arguments);
+                    try {
+                        r = origGetExtraMenuOptions.apply(this, arguments);
+                    } catch (err) {
+                        console.error("[jdsc] 执行原 getExtraMenuOptions 报错:", err);
+                    }
                 }
                 try {
                     const targetUrl = __jdsc_getMediaUrl(this);
@@ -1281,6 +1287,7 @@ app.registerExtension({
                 } catch (err) {
                     console.error("[jdsc] 拦截右键菜单报错:", err);
                 }
+                return r;
             };
         } else {
             console.error("[jdsc] 未能在全局找到 LGraphNode 类，右键菜单拦截失败！");
