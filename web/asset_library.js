@@ -258,16 +258,26 @@ class AssetLibrary {
             if (this.slideshowTimer) clearTimeout(this.slideshowTimer);
             this.isSlideshowActive = false;
             if (this.playBtn) this.playBtn.innerHTML = "▶ 播放幻灯片";
+            this.updateSlideshowBarState();
         };
         this.startSlideshow = () => {
             if (this.currentDisplayItems.length <= 1) return;
             this.isSlideshowActive = true;
             if (this.playBtn) this.playBtn.innerHTML = "⏸ 暂停幻灯片";
             this.nextLightboxImage();
+            this.updateSlideshowBarState();
         };
         this.toggleSlideshow = () => {
             if (this.isSlideshowActive) this.stopSlideshow();
             else this.startSlideshow();
+        };
+        this.updateSlideshowBarState = () => {
+            if (!this.slideshowBar) return;
+            if (this.isSlideshowActive) {
+                this.slideshowBar.style.opacity = "0";
+            } else {
+                this.slideshowBar.style.opacity = "0.5";
+            }
         };
 
         // 关闭按钮
@@ -429,10 +439,23 @@ class AssetLibrary {
 
         // 幻灯片底部控制台 (UI 最下方最中间)
         const slideshowBar = document.createElement("div");
-        slideshowBar.style.cssText = "position:absolute; bottom:30px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.75); padding:8px 20px; border-radius:30px; display:flex; gap:15px; align-items:center; z-index:10001; backdrop-filter:blur(8px); box-shadow:0 4px 15px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1);";
+        this.slideshowBar = slideshowBar;
+        slideshowBar.style.cssText = "position:absolute; bottom:30px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.75); padding:8px 20px; border-radius:30px; display:flex; gap:15px; align-items:center; z-index:10001; backdrop-filter:blur(8px); box-shadow:0 4px 15px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); transition: opacity 0.3s ease; opacity: 0.5;";
         
         // 关键修复：阻止控制台的 mousedown 事件向上冒泡，防止被外层拖拽逻辑的 preventDefault() 拦截，导致原生下拉菜单无法弹出
         slideshowBar.addEventListener("mousedown", (e) => e.stopPropagation());
+
+        // 鼠标悬停显示/隐藏控制
+        slideshowBar.onmouseenter = () => {
+            if (this.isSlideshowActive) {
+                slideshowBar.style.opacity = "0.3";
+            } else {
+                slideshowBar.style.opacity = "1.0";
+            }
+        };
+        slideshowBar.onmouseleave = () => {
+            this.updateSlideshowBarState();
+        };
         
         this.playBtn = document.createElement("button");
         this.playBtn.innerHTML = "▶ 播放幻灯片";
@@ -491,6 +514,7 @@ class AssetLibrary {
         if (this.resetLightbox) {
             this.resetLightbox(); // This will reset the zoom to fit the screen
         }
+        this.updateSlideshowBarState();
     }
     
     prevLightboxImage() {
@@ -954,92 +978,317 @@ app.registerExtension({
             };
         }
 
-        // 全局右键菜单拦截，用于“收藏媒体到素材库”
-        const origGetExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
-        nodeType.prototype.getExtraMenuOptions = function(canvas, options) {
-            if (origGetExtraMenuOptions) {
-                origGetExtraMenuOptions.apply(this, arguments);
-            }
-            
-            let targetUrl = null;
-            
-            // 嗅探 1: 常规预览图
-            if (this.imgs && this.imgs.length > 0) {
-                const idx = this.imageIndex || 0;
-                if (this.imgs[idx] && this.imgs[idx].src) {
-                    targetUrl = this.imgs[idx].src;
+        if (nodeData.name === "WuhuoLoadAsset") {
+            const onNodeCreated = nodeType.prototype.onNodeCreated;
+            nodeType.prototype.onNodeCreated = function () {
+                const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
+
+                const node = this;
+                const categoryWidget = this.widgets?.find(w => w.name === "category");
+                const imageWidget = this.widgets?.find(w => w.name === "image");
+
+                if (categoryWidget && imageWidget) {
+                    categoryWidget.type = "combo";
+                    imageWidget.type = "combo";
+                    
+                    categoryWidget.options = { values: [] };
+                    imageWidget.options = { values: [] };
+
+                    const getAssetData = async () => {
+                        if (manager.categories && manager.categories.length > 0) {
+                            return manager.categories;
+                        }
+                        try {
+                            const res = await fetch("/jdsc/assets/list");
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.success) {
+                                    manager.categories = data.categories || [];
+                                }
+                            }
+                        } catch (e) {
+                            console.error(e);
+                        }
+                        return manager.categories || [];
+                    };
+                    
+                    const updateCategories = async () => {
+                        const categoriesData = await getAssetData();
+                        const categories = categoriesData.map(c => c.name);
+                        categoryWidget.options.values = categories;
+                        
+                        if (!categories.includes(categoryWidget.value)) {
+                            categoryWidget.value = categories[0] || "";
+                        }
+                        
+                        await updateImages(categoryWidget.value);
+                    };
+
+                    const updateImages = async (categoryName) => {
+                        const categoriesData = await getAssetData();
+                        const cat = categoriesData.find(c => c.name === categoryName);
+                        const files = cat ? cat.files : [];
+                        imageWidget.options.values = files;
+                        
+                        if (!files.includes(imageWidget.value)) {
+                            imageWidget.value = files[0] || "";
+                        }
+                        
+                        if (node.graph) {
+                            node.graph.setDirtyCanvas(true, true);
+                        }
+                    };
+
+                    categoryWidget.callback = async function (value) {
+                        await updateImages(value);
+                    };
+
+                    setTimeout(updateCategories, 50);
                 }
-            } 
-            // 嗅探 2: 视频节点 (如 VHS_VideoCombine)
-            if (!targetUrl && this.animatedImages && this.animatedImages.length > 0) {
-                const idx = this.imageIndex || 0;
-                if (this.animatedImages[idx] && this.animatedImages[idx].src) {
-                    targetUrl = this.animatedImages[idx].src;
-                } else if (this.animatedImages[idx] && this.animatedImages[idx].videoEl && this.animatedImages[idx].videoEl.src) {
-                     targetUrl = this.animatedImages[idx].videoEl.src;
+                return r;
+            };
+
+            const onConfigure = nodeType.prototype.onConfigure;
+            nodeType.prototype.onConfigure = function (info) {
+                const r = onConfigure ? onConfigure.apply(this, arguments) : undefined;
+                
+                const categoryWidget = this.widgets?.find(w => w.name === "category");
+                const imageWidget = this.widgets?.find(w => w.name === "image");
+                
+                if (categoryWidget && imageWidget) {
+                    categoryWidget.type = "combo";
+                    imageWidget.type = "combo";
+                    
+                    const savedCategory = categoryWidget.value;
+                    const savedImage = imageWidget.value;
+
+                    const getAssetData = async () => {
+                        if (manager.categories && manager.categories.length > 0) {
+                            return manager.categories;
+                        }
+                        try {
+                            const res = await fetch("/jdsc/assets/list");
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.success) {
+                                    manager.categories = data.categories || [];
+                                }
+                            }
+                        } catch (e) {
+                            console.error(e);
+                        }
+                        return manager.categories || [];
+                    };
+                    
+                    getAssetData().then(categoriesData => {
+                        const categories = categoriesData.map(c => c.name);
+                        categoryWidget.options.values = categories;
+                        categoryWidget.value = savedCategory;
+                        
+                        const cat = categoriesData.find(c => c.name === savedCategory);
+                        const files = cat ? cat.files : [];
+                        imageWidget.options.values = files;
+                        imageWidget.value = savedImage;
+                        
+                        if (this.graph) {
+                            this.graph.setDirtyCanvas(true, true);
+                        }
+                    });
                 }
-            }
-            // 嗅探 3: 带有 image / video widget 的加载节点
-            if (!targetUrl && this.widgets) {
-                const mediaWidget = this.widgets.find(w => w.name === "image" || w.name === "video");
-                if (mediaWidget && mediaWidget.value && typeof mediaWidget.value === "string") {
-                    targetUrl = `/view?filename=${encodeURIComponent(mediaWidget.value)}&type=input&subfolder=`;
-                }
-            }
-            
-            if (targetUrl) {
-                options.push(null); // 分隔线
-                options.push({
-                    content: "⭐ 收藏媒体到素材库",
-                    has_submenu: true,
-                    callback: (value, menuOptions, e, menu, node) => {
-                        fetch("/jdsc/assets/list")
-                            .then(res => res.json())
-                            .then(data => {
-                                if (!data.success) { alert("获取分类失败: " + data.error); return; }
-                                
-                                const menuItems = [];
-                                data.categories.forEach(cat => {
-                                    if (cat.name === "预览+历史记录") return;
-                                    menuItems.push({
-                                        content: "📁 " + cat.name,
-                                        callback: () => {
-                                            fetch("/jdsc/assets/save_media", {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({
-                                                    url: targetUrl,
-                                                    target_category: cat.name
-                                                })
-                                            }).then(res => res.json()).then(saveData => {
-                                                if (saveData.success) {
-                                                    console.log("已成功收藏到:", cat.name);
-                                                    // 给出轻微提示
-                                                    const tip = document.createElement("div");
-                                                    tip.textContent = "✅ 已收藏到: " + cat.name;
-                                                    tip.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:rgba(76,175,80,0.9); color:#fff; padding:10px 20px; border-radius:8px; z-index:10000; font-weight:bold; box-shadow:0 4px 12px rgba(0,0,0,0.3); transition:opacity 0.5s;";
-                                                    document.body.appendChild(tip);
-                                                    setTimeout(() => { tip.style.opacity = "0"; setTimeout(() => document.body.removeChild(tip), 500); }, 2000);
-                                                } else {
-                                                    alert("保存失败: " + saveData.error);
-                                                }
-                                            });
-                                        }
-                                    });
-                                });
-                                
-                                LiteGraph.closeAllContextMenus();
-                                new LiteGraph.ContextMenu(
-                                    menuItems,
-                                    { event: e, left: e.clientX, top: e.clientY, node: node }
-                                );
-                            });
-                    }
-                });
-            }
-        };
+                return r;
+            };
+        }
+        
+        // (Shift+左键收藏功能已移到 setup() 中的 document 级监听器，不再在此处注入)
     },
     async setup() {
+        // ========================================================================
+        // Shift + 左键点击节点 → 弹出"收藏到素材库"菜单
+        // 使用 document 级别的捕获阶段监听器，这是浏览器 DOM 最顶层，
+        // 不会被任何 LiteGraph 或其他插件的 onMouseDown 覆盖。
+        // ========================================================================
+        function __jdsc_getMediaUrl(node) {
+            if (!node) return null;
+            // 嗅探 1: 常规预览图 (PreviewImage, SaveImage 等)
+            if (node.imgs && node.imgs.length > 0) {
+                const idx = node.imageIndex || 0;
+                if (node.imgs[idx] && node.imgs[idx].src) return node.imgs[idx].src;
+            }
+            // 嗅探 1.2: 兼容单个 image 对象的节点
+            if (node.image && typeof node.image.src === "string") {
+                return node.image.src;
+            }
+            if (node.images && node.images.length > 0) {
+                const idx = node.imageIndex || 0;
+                if (node.images[idx] && node.images[idx].src) return node.images[idx].src;
+                if (typeof node.images[idx] === "string") return node.images[idx];
+            }
+            // 嗅探 2: 视频节点 (VHS_VideoCombine 等)
+            if (node.animatedImages && node.animatedImages.length > 0) {
+                const idx = node.imageIndex || 0;
+                if (node.animatedImages[idx]) {
+                    if (node.animatedImages[idx].src) return node.animatedImages[idx].src;
+                    if (node.animatedImages[idx].videoEl && node.animatedImages[idx].videoEl.src) return node.animatedImages[idx].videoEl.src;
+                }
+            }
+            // 嗅探 3: 带有 image/video widget 的加载节点 (LoadImage 等)
+            if (node.widgets) {
+                const mediaWidget = node.widgets.find(w => 
+                    w.name === "image" || w.name === "video" || w.name === "Upload" || 
+                    (w.value && typeof w.value === "string" && /\.(png|jpg|jpeg|webp|gif|mp4|webm|mov|avif)$/i.test(w.value))
+                );
+                if (mediaWidget && mediaWidget.value && typeof mediaWidget.value === "string") {
+                    if (mediaWidget.value.startsWith("http://") || mediaWidget.value.startsWith("https://") || mediaWidget.value.startsWith("/")) {
+                        return mediaWidget.value;
+                    }
+                    return `/view?filename=${encodeURIComponent(mediaWidget.value)}&type=input&subfolder=`;
+                }
+            }
+            return null;
+        }
+
+        function __jdsc_showCollectMenu(posX, posY, targetUrl, node) {
+            fetch("/jdsc/assets/list")
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.success) { alert("获取分类失败: " + data.error); return; }
+                    const menuItems = [];
+                    data.categories.forEach(cat => {
+                        if (cat.name === "预览+历史记录") return;
+                        menuItems.push({
+                            content: "📁 " + cat.name,
+                            callback: () => {
+                                fetch("/jdsc/assets/save_media", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ url: targetUrl, target_category: cat.name })
+                                }).then(res => res.json()).then(saveData => {
+                                    if (saveData.success) {
+                                        const tip = document.createElement("div");
+                                        tip.textContent = "✅ 已收藏到: " + cat.name;
+                                        tip.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:rgba(76,175,80,0.9); color:#fff; padding:10px 20px; border-radius:8px; z-index:10000; font-weight:bold; box-shadow:0 4px 12px rgba(0,0,0,0.3); transition:opacity 0.5s;";
+                                        document.body.appendChild(tip);
+                                        setTimeout(() => { tip.style.opacity = "0"; setTimeout(() => document.body.removeChild(tip), 500); }, 2000);
+                                    } else {
+                                        alert("保存失败: " + saveData.error);
+                                    }
+                                }).catch(err => {
+                                    console.error(err);
+                                    alert("保存失败，网络请求错误。");
+                                });
+                            }
+                        });
+                    });
+                    if (menuItems.length === 0) { alert("素材库中还没有自定义目录，请先打开素材库进行添加！"); return; }
+                    LiteGraph.closeAllContextMenus();
+                    new LiteGraph.ContextMenu(menuItems, { event: null, left: posX, top: posY, node: node });
+                }).catch(err => {
+                    console.error(err);
+                    alert("获取分类列表失败，网络错误。");
+                });
+        }
+
+        // ========================================================================
+        // 核心注入：在 LGraphCanvas 原型（Prototype）层劫持鼠标按下处理
+        // 从类（Class）级别进行覆盖，这样无论是 window.app.canvas 还是重新初始化的任何实例，
+        // 或者是任何嵌套、分屏画布，都绝对会被捕获！且完美利用 LiteGraph 内部精准计算的 graph_mouse 坐标。
+        // ========================================================================
+        const LGraphCanvasClass = window.LGraphCanvas || (window.LiteGraph && window.LiteGraph.LGraphCanvas);
+        if (LGraphCanvasClass) {
+            console.log("[jdsc] 成功注入 LGraphCanvas.prototype.processMouseDown 拦截器");
+            const origProcessMouseDown = LGraphCanvasClass.prototype.processMouseDown;
+            
+            LGraphCanvasClass.prototype.processMouseDown = function (e) {
+                // 仅限 Shift + 左键点击
+                if (e.button === 0 && e.shiftKey) {
+                    // 强制 LiteGraph 更新鼠标坐标，确保 graph_mouse 坐标最新
+                    if (typeof this.adjustMouseEvent === 'function') {
+                        this.adjustMouseEvent(e);
+                    }
+                    
+                    const graphX = this.graph_mouse[0];
+                    const graphY = this.graph_mouse[1];
+                    
+                    // 查找被点击的节点，使用 this.graph._nodes 绕过视野裁剪
+                    const node = this.graph.getNodeOnPos(graphX, graphY, this.graph._nodes, 5);
+                    
+                    console.log("[jdsc-debug] 检测到 Shift + 左键点击!", {
+                        hasNode: !!node,
+                        nodeType: node ? node.type : null,
+                        nodeTitle: node ? node.title : null,
+                        graphMouse: [graphX, graphY]
+                    });
+
+                    if (node) {
+                        const targetUrl = __jdsc_getMediaUrl(node);
+                        console.log("[jdsc-debug] 节点媒体地址嗅探结果:", targetUrl, "节点详情:", node);
+
+                        if (targetUrl) {
+                            const posX = e.clientX;
+                            const posY = e.clientY;
+                            
+                            // 必须阻止默认事件，防止 LiteGraph 触发多选框或框选行为
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+                            
+                            __jdsc_showCollectMenu(posX, posY, targetUrl, node);
+                            
+                            // 返回 true 终止后续点击逻辑
+                            return true;
+                        } else {
+                            console.warn("[jdsc-debug] 该节点似乎不包含可识别的图片或视频资源。如果它确实有图片，可能是由非标准插件魔改的渲染方式。");
+                        }
+                    }
+                }
+                
+                // 放行其他所有点击
+                if (origProcessMouseDown) {
+                    return origProcessMouseDown.apply(this, arguments);
+                }
+            };
+        } else {
+            console.error("[jdsc] 未能在全局找到 LGraphCanvas 类，原型拦截失败！");
+        }
+
+        // ========================================================================
+        // 核心注入：在 LGraphNode 原型（Prototype）层劫持右键菜单选项
+        // 从类（Class）级别进行覆盖，确保任何显示图像/视频的节点在右键菜单最底部都多出“收藏到素材库”选项
+        // ========================================================================
+        const LGraphNodeClass = window.LGraphNode || (window.LiteGraph && window.LiteGraph.LGraphNode);
+        if (LGraphNodeClass) {
+            console.log("[jdsc] 成功注入 LGraphNode.prototype.getExtraMenuOptions 拦截器");
+            const origGetExtraMenuOptions = LGraphNodeClass.prototype.getExtraMenuOptions;
+            LGraphNodeClass.prototype.getExtraMenuOptions = function (canvas, options) {
+                if (origGetExtraMenuOptions) {
+                    origGetExtraMenuOptions.apply(this, arguments);
+                }
+                try {
+                    const targetUrl = __jdsc_getMediaUrl(this);
+                    if (targetUrl) {
+                        // 确保不重复添加
+                        if (!options.some(opt => opt && opt.content === "⭐ 收藏到素材库")) {
+                            options.push({
+                                content: "⭐ 收藏到素材库",
+                                callback: (value, menuOptions, e, menu, node) => {
+                                    const posX = (e && typeof e.clientX !== 'undefined') ? e.clientX : (menu && menu.root ? menu.root.getBoundingClientRect().left : 100);
+                                    const posY = (e && typeof e.clientY !== 'undefined') ? e.clientY : (menu && menu.root ? menu.root.getBoundingClientRect().top : 100);
+                                    __jdsc_showCollectMenu(posX, posY, targetUrl, this);
+                                }
+                            });
+                        }
+                    }
+                } catch (err) {
+                    console.error("[jdsc] 拦截右键菜单报错:", err);
+                }
+            };
+        } else {
+            console.error("[jdsc] 未能在全局找到 LGraphNode 类，右键菜单拦截失败！");
+        }
+
+
+
+
         // 1. 动态注入 CSS，防止部分 ComfyUI 版本不自动加载 CSS 导致样式丢失
         const style = document.createElement("style");
         style.textContent = `
@@ -1218,15 +1467,24 @@ app.registerExtension({
             alert(newPwd === "" ? "✅ 密码已清除，素材库将不再需要密码。" : "✅ 密码已更新。");
         });
 
-        // 读取历史位置
+        // 读取历史位置，并进行边界安全钳位，防止按钮因分辨率/布局变化而飞出屏幕
         try {
             const savedPos = localStorage.getItem("jdsc_asset_btn_pos");
             if (savedPos) {
                 const pos = JSON.parse(savedPos);
+                let left = parseFloat(pos.left) || 0;
+                let top = parseFloat(pos.top) || 0;
+                const btnW = 100; // 按钮估算宽度
+                const btnH = 36;  // 按钮估算高度
+                const maxLeft = window.innerWidth - btnW - 10;
+                const maxTop  = window.innerHeight - btnH - 10;
+                // 钳位到屏幕安全区
+                left = Math.max(10, Math.min(left, maxLeft));
+                top  = Math.max(10, Math.min(top,  maxTop));
                 globalBtn.style.right = "auto";
                 globalBtn.style.bottom = "auto";
-                globalBtn.style.left = pos.left;
-                globalBtn.style.top = pos.top;
+                globalBtn.style.left = left + "px";
+                globalBtn.style.top = top + "px";
             }
         } catch(e) {}
 

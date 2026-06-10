@@ -427,10 +427,119 @@ class WuhuoAssetLibrary:
     def noop(self):
         return ()
 
+class WuhuoLoadAsset:
+    """素材库加载器：从素材库分类中读取图片或视频"""
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "category": ("STRING", {"default": ""}),
+                "image": ("STRING", {"default": ""}),
+            }
+        }
+    
+    RETURN_TYPES = ("IMAGE", "MASK")
+    FUNCTION = "load_asset"
+    CATEGORY = "wuhuo"
+
+    def load_asset(self, category, image):
+        import torch
+        import numpy as np
+        from PIL import Image, ImageOps, ImageSequence
+
+        if not category or not image:
+            empty_image = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            empty_mask = torch.zeros((1, 64, 64), dtype=torch.float32)
+            return (empty_image, empty_mask)
+
+        if ".." in image or "/" in image or "\\" in image:
+            raise ValueError("非法的素材文件名")
+
+        config = get_config()
+        target_path = None
+        for d in config.get("directories", []):
+            if d.get("name") == category:
+                target_path = d.get("path")
+                break
+        
+        if category == "预览+历史记录":
+            target_path = HISTORY_DIR
+
+        if not target_path or not os.path.exists(target_path):
+            raise FileNotFoundError(f"分类目录不存在: {category}")
+
+        filepath = os.path.join(target_path, image)
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"素材文件不存在: {filepath}")
+
+        try:
+            img = Image.open(filepath)
+        except Exception as e:
+            raise IOError(f"无法打开素材图片: {e}")
+        
+        output_images = []
+        output_masks = []
+        for i in ImageSequence.Iterator(img):
+            i = ImageOps.exif_transpose(i)
+            if i.mode == 'I':
+                i = i.point(lambda val: val * (1/255))
+            image_data = i.convert("RGB")
+            image_data = np.array(image_data).astype(np.float32) / 255.0
+            image_tensor = torch.from_numpy(image_data)[None,]
+            
+            if 'A' in i.getbands():
+                mask_data = np.array(i.getchannel('A')).astype(np.float32) / 255.0
+                mask_tensor = 1.0 - torch.from_numpy(mask_data)
+            else:
+                mask_tensor = torch.zeros((64, 64), dtype=torch.float32)
+                
+            output_images.append(image_tensor)
+            output_masks.append(mask_tensor)
+
+        if len(output_images) > 1:
+            output_image = torch.cat(output_images, dim=0)
+            output_mask = torch.stack(output_masks, dim=0)
+        else:
+            output_image = output_images[0]
+            output_mask = output_masks[0]
+
+        if len(output_mask.shape) == 2:
+            output_mask = output_mask[None,]
+
+        # 复制到 ComfyUI 临时目录以供前端进行图片预览展示
+        try:
+            temp_dir = folder_paths.get_temp_directory()
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_filename = f"asset_load_{uuid.uuid4().hex[:8]}_{image}"
+            temp_filepath = os.path.join(temp_dir, temp_filename)
+            try:
+                os.link(filepath, temp_filepath)
+            except OSError:
+                shutil.copy2(filepath, temp_filepath)
+        except Exception as e:
+            print(f"[Wuhuo素材库] 创建预览文件失败: {e}")
+            temp_filename = ""
+
+        result = (output_image, output_mask)
+        if temp_filename:
+            return {
+                "ui": {
+                    "images": [{
+                        "filename": temp_filename,
+                        "subfolder": "",
+                        "type": "temp"
+                    }]
+                },
+                "result": result
+            }
+        return result
+
 NODE_CLASS_MAPPINGS = {
-    "WuhuoAssetLibrary": WuhuoAssetLibrary
+    "WuhuoAssetLibrary": WuhuoAssetLibrary,
+    "WuhuoLoadAsset": WuhuoLoadAsset
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "WuhuoAssetLibrary": "🖼️ 资产素材库"
+    "WuhuoAssetLibrary": "🖼️ 资产素材库",
+    "WuhuoLoadAsset": "🖼️ 素材库加载器"
 }

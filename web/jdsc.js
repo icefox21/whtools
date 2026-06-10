@@ -75,11 +75,11 @@
 
   function save(key, val) {
     if (key === KEY_FAVS) {
-      try { FAVS_CACHE = (val && typeof val === 'object') ? val : {}; fetch('/jdsc/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(FAVS_CACHE) }); } catch { }
+      try { FAVS_CACHE = (val && typeof val === 'object') ? val : {}; fetch('/jdsc/favorites_save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(FAVS_CACHE) }); } catch { }
       return;
     }
     if (key === KEY_FRAGS) {
-      try { FRAGS_CACHE = Array.isArray(val) ? val : []; fetch('/jdsc/frags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(FRAGS_CACHE) }); } catch { }
+      try { FRAGS_CACHE = Array.isArray(val) ? val : []; fetch('/jdsc/frags_save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(FRAGS_CACHE) }); } catch { }
       return;
     }
     if (String(key || '').startsWith('jdsc:')) {
@@ -91,7 +91,7 @@
         }
         window.__jdsc_settings_cache = window.__jdsc_settings_cache || {};
         window.__jdsc_settings_cache[key] = val;
-        fetch('/jdsc/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(window.__jdsc_settings_cache) });
+        fetch('/jdsc/settings_save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(window.__jdsc_settings_cache) });
       } catch { }
       return;
     }
@@ -2071,6 +2071,51 @@
       node.__jdsc_run_timer = setTimeout(run, 300);
     } catch { }
   }
+  function scheduleLocalRun(node) {
+    try {
+      if (!window.app) return;
+      const run = async () => {
+        try {
+          const api = window.app.api;
+          if (api && typeof api.fetchApi === 'function') {
+            const q = await api.fetchApi('/queue').then(r => r.json()).catch(() => null);
+            if (q && q.queue_running && q.queue_running.length > 0) return;
+          }
+          if (window.rgthree && window.rgthree.queueOutputNodes) {
+             await window.rgthree.queueOutputNodes([node.id]);
+             return;
+          }
+          if (window.app.graphToPrompt && api && typeof api.fetchApi === 'function') {
+            const promptData = await window.app.graphToPrompt();
+            if (!promptData || !promptData.output) return;
+            const oldOutput = promptData.output;
+            let newOutput = {};
+            function recursiveAddNodes(currentId, oldOut, newOut) {
+                let cId = String(currentId);
+                let cNode = oldOut[cId];
+                if (cNode && newOut[cId] == null) {
+                    newOut[cId] = cNode;
+                    for (const inputValue of Object.values(cNode.inputs || [])) {
+                        if (Array.isArray(inputValue)) {
+                            recursiveAddNodes(inputValue[0], oldOut, newOut);
+                        }
+                    }
+                }
+            }
+            recursiveAddNodes(node.id, oldOutput, newOutput);
+            promptData.output = newOutput;
+            await api.fetchApi('/prompt', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: newOutput, client_id: api.clientId })
+            });
+          }
+        } catch { }
+      };
+      clearTimeout(node.__jdsc_local_run_timer);
+      node.__jdsc_local_run_timer = setTimeout(run, 300);
+    } catch { }
+  }
   function isPassing(n) {
     try { const wf = findWidgetByKeyOrLabel(n, "free_pass"); const on = wf ? !!wf.value : false; return on && inputLinked(n); } catch { return false; }
   }
@@ -2102,23 +2147,27 @@
     if (we) {
       const oc = we.callback; we.callback = (v) => {
         try {
+          const wasFree = wf && wf.value;
           oc?.call(node, v); if (v && wf) wf.value = false; const on = (!!v) || (!!(wf && wf.value)); setAllIgnoreGroupsEnabled(on); const g = getGraph(); if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true);
-          // When transitioning FROM edit mode (red to yellow), ensure text is ready
-          if (!v) {
+          
+          const isRedToYellow = !v && !wasFree;
+          const isYellowToRed = v && !wasFree;
+          if (isRedToYellow || isYellowToRed) {
             setTimeout(() => {
               try {
-                // Refresh the display and ensure graph is updated
                 if (window.app.graph && typeof window.app.graph.setDirtyCanvas === 'function') {
                   window.app.graph.setDirtyCanvas(true, true);
                 }
-                // Store the current edit text for passing when switching to yellow mode
                 const wE2 = findWidgetByKeyOrLabel(node, "edit_text");
                 if (wE2 && typeof wE2.value !== 'undefined') {
                   node.properties = Object.assign({}, node.properties || {}, { __manual_text_for_pass: String(wE2.value || "") });
                 }
                 const okManual = !!(wE2 && String(wE2.value || "").length);
                 const okLink = inputLinked(node);
-                if (okManual || okLink) scheduleAutoRun(node);
+                if (okManual || okLink) {
+                    if (isRedToYellow) scheduleAutoRun(node);
+                    else scheduleLocalRun(node);
+                }
               } catch { }
             }, 50);
           }
@@ -2253,7 +2302,7 @@
     if (node.inputs) {
         node.inputs.forEach(inp => { if (inp.name === "in_text") inp.label = " "; });
     }
-    const min_w = 260;
+    const min_w = 310;
     if (node.size[0] < min_w) node.size[0] = min_w;
     if (!node.__jdsc_resize_bound) {
         node.__jdsc_resize_bound = true;
@@ -2277,6 +2326,107 @@
     const wKeyWord = findWidgetByKeyOrLabel(node, "key_word");
     const wEdit = findWidgetByKeyOrLabel(node, "edit_text");
     const wStatus = findWidgetByKeyOrLabel(node, "status");
+
+    // ========================================================================
+    // 新增：文本++（预览++）的信号灯联动与红转黄自动运行逻辑
+    // ========================================================================
+    function setAllIgnoreGroupsEnabled(on) {
+      try {
+        const g = getGraph();
+        const arr = (g && (g._nodes || g.nodes)) || [];
+        arr.forEach(n => {
+          const t = String(n.type || "");
+          if (!t.includes("WuhuoIgnoreGroup")) return;
+          const wE = (n.widgets || []).find(w => String(w.name || "") === "enable");
+          if (wE) wE.value = !!on;
+        });
+        syncIgnoreGroups();
+        const g2 = getGraph();
+        if (g2 && typeof g2.setDirtyCanvas === 'function') g2.setDirtyCanvas(true, true);
+      } catch { }
+    }
+
+    if (wEnable) {
+      const oc = wEnable.callback;
+      wEnable.callback = (v) => {
+        try {
+          const wasFree = wFree && wFree.value;
+          oc?.call(node, v);
+          if (v && wFree) wFree.value = false;
+          const on = (!!v) || (!!(wFree && wFree.value));
+          setAllIgnoreGroupsEnabled(on);
+          const g = getGraph();
+          if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true);
+          
+          const isRedToYellow = !v && !wasFree;
+          const isYellowToRed = v && !wasFree;
+          if (isRedToYellow || isYellowToRed) {
+            setTimeout(() => {
+              try {
+                if (window.app.graph && typeof window.app.graph.setDirtyCanvas === 'function') {
+                  window.app.graph.setDirtyCanvas(true, true);
+                }
+                const wE2 = findWidgetByKeyOrLabel(node, "edit_text");
+                if (wE2 && typeof wE2.value !== 'undefined') {
+                  node.properties = Object.assign({}, node.properties || {}, { __manual_text_for_pass: String(wE2.value || "") });
+                }
+                const okManual = !!(wE2 && String(wE2.value || "").length);
+                const okLink = inputLinked(node);
+                if (okManual || okLink) {
+                    if (isRedToYellow) scheduleAutoRun(node);
+                    else scheduleLocalRun(node);
+                }
+              } catch { }
+            }, 50);
+          }
+        } catch { }
+      };
+    }
+
+    try {
+      const release = () => {
+        try {
+          const style = document.getElementById('jdsc-hide-modals');
+          if (style) style.remove();
+          window.__jdsc_clicked_once = false;
+          window.__jdsc_sent_escape = false;
+        } catch { }
+      };
+      if (wEnable) {
+        const prev = wEnable.callback;
+        wEnable.callback = (v) => {
+          try {
+            prev?.call(node, v);
+            if (!v) release();
+            const g = getGraph();
+            if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true);
+          } catch { }
+        };
+      }
+    } catch { }
+
+    if (wFree) {
+      const oc2 = wFree.callback;
+      wFree.callback = (v) => {
+        try {
+          oc2?.call(node, v);
+          if (v && wEnable) wEnable.value = false;
+          const on = (!!v) || (!!(wEnable && wEnable.value));
+          setAllIgnoreGroupsEnabled(on);
+          const g = getGraph();
+          if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true);
+          if (v) {
+            setTimeout(() => {
+              try {
+                if (window.app.graph && typeof window.app.graph.setDirtyCanvas === 'function') {
+                  window.app.graph.setDirtyCanvas(true, true);
+                }
+              } catch { }
+            }, 50);
+          }
+        } catch { }
+      };
+    }
 
     const hiddenWidgets = [wEnable, wFree, wRand, wEnhance, wKeyWord, wStatus];
     hiddenWidgets.forEach((w, idx) => {
@@ -2302,6 +2452,10 @@
     node.onDrawForeground = function(ctx) {
         if (origFG) origFG.call(this, ctx);
         
+        if (this.flags && this.flags.collapsed) {
+            return;
+        }
+        
         // Draw Toolbar
         const y = LiteGraph.NODE_TITLE_HEIGHT || 30;
         const width = this.size[0];
@@ -2314,17 +2468,32 @@
 
         const isFree = wFree && wFree.value;
         const isEdit = wEnable && wEnable.value;
-        const stateColor = isFree ? "#52c41a" : (isEdit ? "#ff4d4f" : "#faad14");
-        const stateText = isFree ? "🟢 直通" : (isEdit ? "🔴 拦截" : "🟡 手动");
 
-        ctx.fillStyle = stateColor;
+        // 绘制红黄灯按钮 (🔴拦截 / 🟡手动)
+        let ryColor = "#666";
+        let ryText = "🔴 拦截";
+        if (isEdit) {
+            ryColor = "#ff4d4f";
+            ryText = "🔴 拦截";
+        } else if (!isFree) {
+            ryColor = "#faad14";
+            ryText = "🟡 手动";
+        }
+        ctx.fillStyle = ryColor;
         ctx.font = "12px sans-serif";
-        ctx.fillText(stateText, 18, y + 21);
+        ctx.fillText(ryText, 16, y + 21);
 
+        // 绘制绿灯标签 (🟢直通)
+        let gColor = isFree ? "#52c41a" : "#666";
+        ctx.fillStyle = gColor;
+        ctx.font = "12px sans-serif";
+        ctx.fillText("🟢 直通", 78, y + 21);
+
+        // 灰色分隔线
         ctx.fillStyle = "#444";
-        ctx.fillRect(80, y + 6, 1, 20);
+        ctx.fillRect(135, y + 6, 1, 20);
 
-        const startX = 85;
+        const startX = 140;
         const endX = this.size[0] - 10;
         const totalAvail = endX - startX;
         const numIcons = 7;
@@ -2376,21 +2545,47 @@
       node.__jdsc_pro_mouse_bound = true;
       const origMouseDown = node.onMouseDown;
       node.onMouseDown = function(event, pos, canvas) {
+        if (this.flags && this.flags.collapsed) {
+            if (origMouseDown) return origMouseDown.call(this, event, pos, canvas);
+            return false;
+        }
         const x = pos[0];
         const y = pos[1];
         
         const tbY = LiteGraph.NODE_TITLE_HEIGHT || 30;
         if (y >= tbY && y <= tbY + 32) {
-                if (x >= 10 && x < 80) {
+                // 红黄灯按钮点击判定
+                if (x >= 10 && x < 75) {
                     const isFree = wFree && wFree.value;
                     const isEdit = wEnable && wEnable.value;
                     if (isFree) {
+                        // 如果当前是绿灯，点红黄按钮默认切到红灯
                         if(wFree) wFree.value = false;
                         if(wEnable) wEnable.value = true;
                     } else if (isEdit) {
+                        // 红灯 ➔ 黄灯
                         if(wEnable) wEnable.value = false;
                         if(wFree) wFree.value = false;
                     } else {
+                        // 黄灯 ➔ 红灯
+                        if(wEnable) wEnable.value = true;
+                        if(wFree) wFree.value = false;
+                    }
+                    try { if(wEnable && wEnable.callback) wEnable.callback(wEnable.value); } catch(e){}
+                    try { if(wFree && wFree.callback) wFree.callback(wFree.value); } catch(e){}
+                    app.graph.setDirtyCanvas(true,true);
+                    return true;
+                }
+
+                // 绿灯标签点击判定
+                if (x >= 75 && x < 130) {
+                    const isFree = wFree && wFree.value;
+                    if (isFree) {
+                        // 绿灯激活时点击：关闭绿灯，切回红灯
+                        if(wFree) wFree.value = false;
+                        if(wEnable) wEnable.value = true;
+                    } else {
+                        // 绿灯未激活时点击：开启绿灯
                         if(wFree) wFree.value = true;
                         if(wEnable) wEnable.value = false;
                     }
@@ -2431,19 +2626,33 @@
                                 const defaultName = this.properties.current_fav_name || "";
                                 const name = prompt("请输入收藏名称:", defaultName);
                                 if(name && window.__jdsc_tf) {
+                                    const _this = this;
                                     const favs = window.__jdsc_tf.getTextFavs();
                                     let cat = "SFW";
-                                    if (name.trim() === defaultName && favs[name.trim()]) { cat = favs[name.trim()].category; }
+                                    if (name.trim() === defaultName && favs[name.trim()]) { 
+                                        finalizeSave(favs[name.trim()].category);
+                                    }
                                     else {
                                         let defaultCat = window.__jdsc_tf.getLastCategory();
                                         if (defaultCat === "全部") defaultCat = "SFW";
-                                        let inputCat = prompt("请输入分类 (例如: NSFW, 人物, SFW):", defaultCat);
-                                        if (inputCat !== null) cat = inputCat;
+                                        
+                                        if (window.__jdsc_tf.showCategorySelectDialog) {
+                                            window.__jdsc_tf.showCategorySelectDialog(defaultCat, (inputCat) => {
+                                                if (inputCat === null || inputCat === undefined) return;
+                                                finalizeSave(inputCat);
+                                            });
+                                        } else {
+                                            let inputCat = prompt("请输入分类 (例如: NSFW, 人物, SFW):", defaultCat);
+                                            if (inputCat !== null) finalizeSave(inputCat);
+                                        }
                                     }
-                                    favs[name.trim()] = { content: currentText, category: cat.trim() || "SFW", tags: [] };
-                                    window.__jdsc_tf.saveTextFavs(favs);
-                                    this.properties.current_fav_name = name.trim();
-                                    app.graph.setDirtyCanvas(true,true);
+                                    
+                                    function finalizeSave(finalCat) {
+                                        favs[name.trim()] = { content: currentText, category: finalCat.trim() || "SFW", tags: [] };
+                                        window.__jdsc_tf.saveTextFavs(favs);
+                                        _this.properties.current_fav_name = name.trim();
+                                        app.graph.setDirtyCanvas(true,true);
+                                    }
                                 }
                             } else if (box.id === 'enhance') {
                                 openEnhanceModalShared(this, wEnhance);

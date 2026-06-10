@@ -11,9 +11,10 @@
   const KEY_WF_MODAL_SIZE = "jdsc:workflowModalSize";
   const KEY_WF_MODAL_SIZE_FAVS = "jdsc:workflowModalSize:favs";
   const KEY_WF_MODAL_SIZE_WORK = "jdsc:workflowModalSize:work";
-  const KEY_WF_HISTORY = "jdsc:workflow_history"; // 历史记录
+  const KEY_WF_HISTORY = "whtools:workflow_history"; // 历史记录，纯本地存储，避免与settings同步冲突
   let WF_FOLDERS_CACHE = null;
   let WF_FAVS_CACHE = null;
+  let WF_HISTORY_CACHE = null;
 
   // 从服务器同步设置（包括快捷键、模态框位置等）
   async function syncSettingsFromServer() {
@@ -48,11 +49,22 @@
     } catch { }
   }
 
+  async function syncHistoryFromServer() {
+    try {
+      const res = await fetch('/jdsc/workflow_history?t=' + Date.now());
+      if (res && res.ok) {
+        const data = await res.json();
+        WF_HISTORY_CACHE = Array.isArray(data) ? data : [];
+      }
+    } catch { }
+  }
+
   function loadWF(key, def) {
     try {
       // 对于文件夹和收藏，强制使用服务器缓存（如果同步失败则返回空，不回退到LocalStorage）
       if (key === KEY_WF_FOLDERS) return WF_FOLDERS_CACHE !== null ? WF_FOLDERS_CACHE : def;
       if (key === KEY_WF_FAVS) return WF_FAVS_CACHE !== null ? WF_FAVS_CACHE : def;
+      if (key === KEY_WF_HISTORY) return WF_HISTORY_CACHE !== null ? WF_HISTORY_CACHE : def;
 
       if (String(key || '').startsWith('jdsc:')) {
         const cache = (window.__jdsc_settings_cache || {});
@@ -69,7 +81,7 @@
     try {
       if (key === KEY_WF_FOLDERS) {
         WF_FOLDERS_CACHE = Array.isArray(val) ? val : [];
-        fetch('/jdsc/workflow_folders', {
+        fetch('/jdsc/workflow_folders_save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(WF_FOLDERS_CACHE)
@@ -78,10 +90,19 @@
       }
       if (key === KEY_WF_FAVS) {
         WF_FAVS_CACHE = (val && typeof val === 'object') ? val : {};
-        fetch('/jdsc/workflow_favorites', {
+        fetch('/jdsc/workflow_favorites_save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(WF_FAVS_CACHE)
+        });
+        return;
+      }
+      if (key === KEY_WF_HISTORY) {
+        WF_HISTORY_CACHE = Array.isArray(val) ? val : [];
+        fetch('/jdsc/workflow_history_save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(WF_HISTORY_CACHE)
         });
         return;
       }
@@ -94,7 +115,7 @@
           return;
         }
         window.__jdsc_settings_cache[key] = val;
-        fetch('/jdsc/settings', {
+        fetch('/jdsc/settings_save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(window.__jdsc_settings_cache)
@@ -893,6 +914,22 @@
           fileName = currentWorkflowInfo.name;
         }
 
+        // === 2.5 拦截与另存为机制 (Save As Hook) ===
+        // 如果系统发现当前工作流已经绑定了物理路径，主动询问用户是“覆盖更新”还是“另存为新文件”
+        if (path) {
+            const doUpdate = confirm(`⚠️ 当前工作流已绑定到物理文件:\n${nameNoExt}\n\n[确定]：覆盖更新该原文件 (相当于直接保存)\n[取消]：将此画布“另存为”一个全新的工作流`);
+            if (!doUpdate) {
+                // 用户选择另存为，强制剥离当前的物理路径身份，引导至下方的新建流程
+                path = null;
+                nameNoExt = null;
+                fileName = null;
+                if (window.app && window.app.graph) {
+                    window.app.graph.jdsc_path = null;
+                    window.app.graph.jdsc_name = null;
+                }
+            }
+        }
+
         if (!path) {
           const customName = prompt("⚠ 发现您当前的工作流可能是拖拽导入或原生加载的，尚未绑定本地路径。\n\n请输入一个名称，我们将为您瞬间在本地生成该文件并强制加入收藏：", "未命名工作流_" + Math.floor(Date.now()/1000));
           if (!customName) return;
@@ -906,6 +943,13 @@
           nameNoExt = customName.trim().replace(/\.json$/i, '');
           fileName = nameNoExt + ".json";
           path = targetDir.replace(/[\\\/]+$/, '') + "/" + fileName;
+          
+          // === 物理级防覆盖查重 (Collision Prevention) ===
+          const favs = getWFFavs();
+          if (favs[path]) {
+             alert(`⛔ 收藏失败！\n\n该目录下已存在名为 "${fileName}" 的收藏记录！\n为了防止您的旧工作流被意外覆盖导致数据丢失，请换一个名称。`);
+             return;
+          }
           
           let workflowData = {};
           if (window.app && window.app.graph) {
@@ -1132,8 +1176,8 @@
         ));
 
         // 重命名
-        menu.appendChild(createMenuItem('📝', '重命名', () => {
-          const newName = prompt('请输入新名称:', fav.custom_name || fav.original_name);
+        menu.appendChild(createMenuItem('📝', '重命名 (仅UI别名)', () => {
+          const newName = prompt('⚠️ 提示：此操作仅在您的收藏列表中更改【显示别名】，并不会修改硬盘上的真实文件名！\n\n新显示别名:', fav.custom_name || fav.original_name);
           if (newName && newName.trim()) {
             fav.custom_name = newName.trim();
             saveWF(KEY_WF_FAVS, favs);
@@ -1620,7 +1664,7 @@
       searchInput.placeholder = "搜索历史记录...";
       refresh();
     };
-    syncSettingsFromServer().then(() => syncFoldersFromServer()).then(() => syncFavsFromServer()).then(() => refresh());
+    syncSettingsFromServer().then(() => syncFoldersFromServer()).then(() => syncFavsFromServer()).then(() => syncHistoryFromServer()).then(() => refresh());
     document.body.appendChild(modal);
     return modal;
   };

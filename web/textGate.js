@@ -12,7 +12,12 @@ import { api } from "../../../scripts/api.js";
 function registerTextGateToSlotDefaults() {
     if (!window.LiteGraph) return;
 
-    const nodeType = "WuhuoTextGate";
+    // 内部辅助：幂等地将节点类型插到数组最前面
+    function ensureFirst(arr, nt) {
+        const idx = arr.indexOf(nt);
+        if (idx !== -1) arr.splice(idx, 1);
+        arr.unshift(nt);
+    }
 
     // slot_types_default_out: 当从 INPUT 拉线时显示的 OUTPUT 节点
     if (!LiteGraph.slot_types_default_out) {
@@ -22,11 +27,8 @@ function registerTextGateToSlotDefaults() {
         LiteGraph.slot_types_default_out["STRING"] = [];
     }
     const arrOut = LiteGraph.slot_types_default_out["STRING"];
-    const idxOut = arrOut.indexOf(nodeType);
-    if (idxOut !== -1) {
-        arrOut.splice(idxOut, 1);
-    }
-    arrOut.unshift(nodeType);
+    ensureFirst(arrOut, "WuhuoTextGate");
+    ensureFirst(arrOut, "WuhuoTextGatePro"); // 文本++排在最前
 
     // 同时注册到 slot_types_default_in（当从 OUTPUT 拉线时）
     if (!LiteGraph.slot_types_default_in) {
@@ -36,11 +38,8 @@ function registerTextGateToSlotDefaults() {
         LiteGraph.slot_types_default_in["STRING"] = [];
     }
     const arrIn = LiteGraph.slot_types_default_in["STRING"];
-    const idxIn = arrIn.indexOf(nodeType);
-    if (idxIn !== -1) {
-        arrIn.splice(idxIn, 1);
-    }
-    arrIn.unshift(nodeType);
+    ensureFirst(arrIn, "WuhuoTextGate");
+    ensureFirst(arrIn, "WuhuoTextGatePro"); // 文本++排在最前
 }
 
 // 在多个时机尝试注册，确保覆盖所有情况
@@ -153,9 +152,9 @@ app.registerExtension({
             if (!graph || !graph._nodes) return;
 
             for (const node of graph._nodes) {
-                if (node.type !== "WuhuoTextGate") continue;
+                if (node.type !== "WuhuoTextGate" && node.type !== "WuhuoTextGatePro") continue;
 
-                // 计算文本+节点的真实高度（多行文本框可能把节点撑得比原始 size 高得多）
+                // 计算文本+/文本++节点的真实高度（多行文本框可能把节点撑得比原始 size 高得多）
                 let h = node.size[1];
                 if (node.computeSize) {
                     const cSize = node.computeSize([node.size[0], node.size[1]]);
@@ -173,7 +172,7 @@ app.registerExtension({
 
                 if (isMouseOver) {
                     // Z 键：执行此节点
-                    console.log("[whtools] Z键触发执行文本+节点，节点ID:", node.id);
+                    console.log("[whtools] Z键触发执行节点，节点类型:", node.type, "节点ID:", node.id);
                     _textGateQueueOutputNodes([node.id]).then(success => {
                         if (success) {
                             node.setDirtyCanvas?.(true, true);

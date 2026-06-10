@@ -1413,6 +1413,9 @@ app.registerExtension({
             options.push({
                 content: "⭐ 收藏到素材库",
                 callback: async (value, menuOptions, e, menu, node) => {
+                    // 提前保存坐标，避免 await 之后 event 对象被浏览器回收导致坐标归零
+                    const posX = (e && typeof e.clientX !== 'undefined') ? e.clientX : (menu && menu.root ? menu.root.getBoundingClientRect().left : 100);
+                    const posY = (e && typeof e.clientY !== 'undefined') ? e.clientY : (menu && menu.root ? menu.root.getBoundingClientRect().top : 100);
                     try {
                         const res = await fetch("/jdsc/assets/list");
                         const data = await res.json();
@@ -1448,7 +1451,7 @@ app.registerExtension({
                             
                             // 动态创建二级菜单使其跟随鼠标坐标
                             LiteGraph.closeAllContextMenus();
-                            new LiteGraph.ContextMenu(subOptions, { event: e, left: e.clientX, top: e.clientY });
+                            new LiteGraph.ContextMenu(subOptions, { event: null, left: posX, top: posY });
                         }
                     } catch (err) {
                         console.error("获取分类列表失败", err);

@@ -108,7 +108,7 @@
 
             localStorage.setItem(KEY_TEXT_FAVS, JSON.stringify(TEXT_FAVS_CACHE));
 
-            fetch('/jdsc/text_favorites', {
+            fetch('/jdsc/text_favorites_save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(TEXT_FAVS_CACHE)
@@ -918,6 +918,141 @@
         renderGrid();
     }
 
+    // ==========================================
+    // 全新：自定义分类选择弹窗 (代替原生 prompt)
+    // ==========================================
+    function showCategorySelectDialog(defaultCat, onConfirm) {
+        // 收集现有分类
+        const favs = getTextFavs();
+        const usedCategories = new Set();
+        DEFAULT_CATEGORIES.forEach(c => { if (c !== "全部") usedCategories.add(c); });
+        Object.values(favs).forEach(item => {
+            if (item.category && item.category !== "全部") usedCategories.add(item.category);
+        });
+        getCustomCats().forEach(cat => {
+            if (cat !== "全部") usedCategories.add(cat);
+        });
+        const categories = Array.from(usedCategories).sort();
+
+        // 创建模态背景 (移除重度消耗GPU的毛玻璃滤镜，改用纯色遮罩)
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.85); z-index: 30000; display: flex;
+            align-items: center; justify-content: center;
+            font-family: sans-serif;
+        `;
+
+        // 弹窗主体
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            background: #1e2124; border: 1px solid #3a3f44; border-radius: 12px;
+            padding: 24px; width: 360px; box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+            display: flex; flex-direction: column; gap: 16px;
+        `;
+        
+        const title = document.createElement('div');
+        title.textContent = "请选择或新建分类";
+        title.style.cssText = "color: #fff; font-size: 16px; font-weight: bold; text-align: center;";
+        modal.appendChild(title);
+
+        // 标签容器
+        const tagsContainer = document.createElement('div');
+        tagsContainer.style.cssText = "display: flex; flex-wrap: wrap; gap: 8px; max-height: 200px; overflow-y: auto; padding-right: 4px;";
+        
+        let selectedCat = defaultCat;
+
+        // 输入框
+        const input = document.createElement('input');
+        input.type = "text";
+        input.placeholder = "或在此输入全新分类名称...";
+        input.value = defaultCat;
+        input.style.cssText = `
+            background: rgba(0,0,0,0.3); border: 1px solid #3a3f44; border-radius: 6px;
+            color: #e6e9ec; font-size: 14px; padding: 10px 12px; outline: none;
+        `;
+        input.onfocus = () => input.style.borderColor = '#1677ff';
+        input.onblur = () => input.style.borderColor = '#3a3f44';
+
+        const tagEls = [];
+        // 渲染标签 (移除过渡动画 transition 避免输入时疯狂重绘)
+        categories.forEach(cat => {
+            const tag = document.createElement('div');
+            tag.textContent = cat;
+            tag.style.cssText = `
+                padding: 6px 14px; border-radius: 16px; font-size: 13px; cursor: pointer; user-select: none;
+                background: ${cat === defaultCat ? '#1677ff' : '#2a2e32'};
+                color: ${cat === defaultCat ? '#fff' : '#b7bcc2'};
+                border: 1px solid ${cat === defaultCat ? '#1677ff' : '#3a3f44'};
+            `;
+            tag.onclick = () => {
+                input.value = cat;
+                selectedCat = cat;
+                tagEls.forEach(t => {
+                    t.style.background = '#2a2e32';
+                    t.style.color = '#b7bcc2';
+                    t.style.borderColor = '#3a3f44';
+                });
+                tag.style.background = '#1677ff';
+                tag.style.color = '#fff';
+                tag.style.borderColor = '#1677ff';
+            };
+            tagEls.push(tag);
+            tagsContainer.appendChild(tag);
+        });
+
+        // 文本联动
+        input.oninput = () => {
+            selectedCat = input.value.trim();
+            tagEls.forEach(t => {
+                if (t.textContent === selectedCat) {
+                    t.style.background = '#1677ff'; t.style.color = '#fff'; t.style.borderColor = '#1677ff';
+                } else {
+                    t.style.background = '#2a2e32'; t.style.color = '#b7bcc2'; t.style.borderColor = '#3a3f44';
+                }
+            });
+        };
+
+        modal.appendChild(tagsContainer);
+        modal.appendChild(input);
+
+        // 按钮组
+        const btns = document.createElement('div');
+        btns.style.cssText = "display: flex; justify-content: flex-end; gap: 12px; margin-top: 12px;";
+        
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = "取消";
+        cancelBtn.style.cssText = "padding: 8px 20px; border-radius: 6px; background: #2a2e32; color: #b7bcc2; border: 1px solid #3a3f44; cursor: pointer; font-size: 14px;";
+        cancelBtn.onclick = () => document.body.removeChild(overlay);
+
+        const okBtn = document.createElement('button');
+        okBtn.textContent = "确定";
+        okBtn.style.cssText = "padding: 8px 20px; border-radius: 6px; background: #1677ff; color: #fff; border: none; cursor: pointer; font-size: 14px; font-weight: bold;";
+        okBtn.onclick = () => {
+            document.body.removeChild(overlay);
+            if (onConfirm) onConfirm(input.value.trim());
+        };
+
+        btns.appendChild(cancelBtn);
+        btns.appendChild(okBtn);
+        modal.appendChild(btns);
+        
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        
+        // 按回车键确定
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') okBtn.click();
+            if (e.key === 'Escape') cancelBtn.click();
+        };
+        
+        // 瞬间聚焦，摒弃 setTimeout 的物理延迟
+        requestAnimationFrame(() => {
+            input.focus();
+            input.select();
+        });
+    }
+
     // 初始化:从服务器同步数据
     syncTextFavsFromServer();
 
@@ -925,7 +1060,8 @@
         openTextFavsModal,
         getTextFavs,
         getLastCategory,
-        saveTextFavs
+        saveTextFavs,
+        showCategorySelectDialog
     };
 
     // 注册扩展
@@ -1027,28 +1163,31 @@
                         const favs = getTextFavs();
                         
                         if (name.trim() === defaultName && favs[name.trim()]) {
-                            cat = favs[name.trim()].category;
+                            finalizeSave(favs[name.trim()].category);
                         } else {
                             let defaultCat = getLastCategory();
                             if (defaultCat === "全部") defaultCat = "SFW";
-                            let inputCat = prompt("请输入分类 (例如: NSFW, 人物, SFW):", defaultCat);
-                            if (inputCat === null) return;
-                            cat = inputCat;
+                            showCategorySelectDialog(defaultCat, (inputCat) => {
+                                if (inputCat === null) return;
+                                finalizeSave(inputCat);
+                            });
                         }
 
-                        favs[name.trim()] = {
-                            content: currentText,
-                            category: cat.trim() || "SFW",
-                            tags: []
-                        };
-                        saveTextFavs(favs);
-                        
-                        node.properties = node.properties || {};
-                        node.properties.current_fav_name = name.trim();
-                        currentFavBtn.name = "🏷️ 词条: " + name.trim();
+                        function finalizeSave(cat) {
+                            favs[name.trim()] = {
+                                content: currentText,
+                                category: cat.trim() || "SFW",
+                                tags: []
+                            };
+                            saveTextFavs(favs);
+                            
+                            node.properties = node.properties || {};
+                            node.properties.current_fav_name = name.trim();
+                            currentFavBtn.name = "🏷️ 词条: " + name.trim();
 
-                        console.log('[TextFavorites] 已收藏:', name.trim());
-                        try { openTextFavsModal(node); } catch (err) { }
+                            console.log('[TextFavorites] 已收藏:', name.trim());
+                            try { openTextFavsModal(node); } catch (err) { }
+                        }
 
                     } catch (e) {
                         console.error('[TextFavorites] 收藏失败:', e);

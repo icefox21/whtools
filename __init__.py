@@ -172,7 +172,7 @@ if PromptServer is not None and web is not None:
             data = {}
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
 
-    @PromptServer.instance.routes.post("/jdsc/favorites")
+    @PromptServer.instance.routes.post("/jdsc/favorites_save")
     async def jdsc_set_favorites(request):
         try:
             payload = await request.json()
@@ -200,7 +200,7 @@ if PromptServer is not None and web is not None:
             data = []
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
 
-    @PromptServer.instance.routes.post("/jdsc/frags")
+    @PromptServer.instance.routes.post("/jdsc/frags_save")
     async def jdsc_set_frags(request):
         try:
             payload = await request.json()
@@ -236,7 +236,7 @@ if PromptServer is not None and web is not None:
             data = {}
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
 
-    @PromptServer.instance.routes.post("/jdsc/settings")
+    @PromptServer.instance.routes.post("/jdsc/settings_save")
     async def jdsc_set_settings(request):
         try:
             payload = await request.json()
@@ -850,6 +850,8 @@ NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoSelectorAny": "任意选择 (多路)"})
 WF_FOLDERS_FILE = os.path.join(DATA_DIRECTORY, "workflow_folders.json")
 # 工作流收藏配置文件路径
 WF_FAVS_FILE = os.path.join(DATA_DIRECTORY, "workflow_favorites.json")
+# 工作流历史记录配置文件路径
+WF_HISTORY_FILE = os.path.join(DATA_DIRECTORY, "workflow_history.json")
 
 # 确保工作流相关数据文件存在
 def _ensure_workflow_data():
@@ -861,6 +863,9 @@ def _ensure_workflow_data():
         if not os.path.exists(WF_FAVS_FILE):
             with open(WF_FAVS_FILE, "w", encoding="utf-8") as f:
                 f.write("{}")
+        if not os.path.exists(WF_HISTORY_FILE):
+            with open(WF_HISTORY_FILE, "w", encoding="utf-8") as f:
+                f.write("[]")
     except Exception:
         pass
 
@@ -881,7 +886,7 @@ if PromptServer is not None and web is not None:
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
     
     # 保存文件夹配置
-    @PromptServer.instance.routes.post("/jdsc/workflow_folders")
+    @PromptServer.instance.routes.post("/jdsc/workflow_folders_save")
     async def jdsc_set_workflow_folders(request):
         try:
             payload = await request.json()
@@ -962,7 +967,7 @@ if PromptServer is not None and web is not None:
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
     
     # 保存工作流收藏
-    @PromptServer.instance.routes.post("/jdsc/workflow_favorites")
+    @PromptServer.instance.routes.post("/jdsc/workflow_favorites_save")
     async def jdsc_set_workflow_favorites(request):
         try:
             payload = await request.json()
@@ -975,6 +980,36 @@ if PromptServer is not None and web is not None:
             os.makedirs(DATA_DIRECTORY, exist_ok=True)
             with open(WF_FAVS_FILE, "w", encoding="utf-8") as f:
                 json.dump(payload if isinstance(payload, dict) else {}, f, ensure_ascii=False, indent=2)
+            return web.json_response({"ok": True})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+    # 获取工作流历史
+    @PromptServer.instance.routes.get("/jdsc/workflow_history")
+    async def jdsc_get_workflow_history(request):
+        try:
+            with open(WF_HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                data = []
+        except Exception:
+            data = []
+        return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
+    
+    # 保存工作流历史
+    @PromptServer.instance.routes.post("/jdsc/workflow_history_save")
+    async def jdsc_set_workflow_history(request):
+        try:
+            payload = await request.json()
+        except Exception as e:
+            return web.json_response({"ok": False, "error": f"Invalid JSON: {e}"}, status=400)
+
+        if not isinstance(payload, list):
+            return web.json_response({"ok": False, "error": "Invalid data format: expected list"}, status=400)
+        try:
+            os.makedirs(DATA_DIRECTORY, exist_ok=True)
+            with open(WF_HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload if isinstance(payload, list) else [], f, ensure_ascii=False, indent=2)
             return web.json_response({"ok": True})
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
@@ -1080,7 +1115,7 @@ if PromptServer is not None and web is not None:
             data = {}
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
 
-    @PromptServer.instance.routes.post("/jdsc/text_favorites")
+    @PromptServer.instance.routes.post("/jdsc/text_favorites_save")
     async def jdsc_set_text_favorites(request):
         try:
             payload = await request.json()
@@ -1185,3 +1220,85 @@ class WuhuoShowText:
 NODE_CLASS_MAPPINGS.update({"显示文本": WuhuoShowText})
 NODE_DISPLAY_NAME_MAPPINGS.update({"显示文本": "显示文本"})
 
+
+# ==========================================================================
+# JDSC Patch: Fix AudioVAE instantiation error in ComfyUI-KJNodes VAELoaderKJ
+# ==========================================================================
+def patch_kjnodes_vae_loader():
+    import sys
+    import logging
+    
+    VAELoaderKJ = None
+    
+    # 1. Search sys.modules first (shallow copy to prevent dictionary changed size error)
+    for name, module in list(sys.modules.items()):
+        if "KJNodes" in name or "kjnodes" in name.lower():
+            if hasattr(module, "VAELoaderKJ"):
+                VAELoaderKJ = getattr(module, "VAELoaderKJ")
+                break
+                
+    # 2. If not found in loaded modules, try dynamic import
+    if VAELoaderKJ is None:
+        try:
+            import importlib
+            for folder in ["ComfyUI-KJNodes", "ComfyUI_KJNodes"]:
+                try:
+                    mod = importlib.import_module(f"custom_nodes.{folder}.nodes.nodes")
+                    if hasattr(mod, "VAELoaderKJ"):
+                        VAELoaderKJ = getattr(mod, "VAELoaderKJ")
+                        break
+                except ImportError:
+                    continue
+        except Exception:
+            pass
+
+    if VAELoaderKJ is not None:
+        try:
+            original_load_vae = VAELoaderKJ.load_vae
+            
+            def patched_load_vae(self, vae_name, device, weight_dtype):
+                try:
+                    from comfy.sd import VAE
+                    import torch
+                    import os
+                    import folder_paths
+                    from comfy.utils import load_torch_file
+                    from comfy import model_management
+                    
+                    logging.info(f"[JDSC Patch] Running patched load_vae in VAELoaderKJ for: {vae_name}")
+                    metadata = None
+                    dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[weight_dtype]
+                    if device == "main_device":
+                        device = model_management.get_torch_device()
+                    elif device == "cpu":
+                        device = torch.device("cpu")
+
+                    if vae_name == "pixel_space":
+                        sd = {}
+                        sd["pixel_space_vae"] = torch.tensor(1.0)
+                    elif vae_name in self.image_taes:
+                        sd = self.load_taesd(vae_name)
+                    else:
+                        if os.path.splitext(vae_name)[0] in self.video_taes:
+                            vae_path = folder_paths.get_full_path_or_raise("vae_approx", vae_name)
+                        else:
+                            vae_path = folder_paths.get_full_path_or_raise("vae", vae_name)
+                        sd, metadata = load_torch_file(vae_path, return_metadata=True)
+
+                    # Delegate to ComfyUI Core's standard VAE loader to natively support AudioVAE with VRAM management
+                    vae = VAE(sd=sd, device=device, dtype=dtype, metadata=metadata)
+                    vae.throw_exception_if_invalid()
+                    return (vae,)
+                except Exception as e:
+                    logging.error(f"[JDSC Patch] Patched load_vae failed with error: {e}. Falling back to original.")
+                    return original_load_vae(self, vae_name, device, weight_dtype)
+            
+            VAELoaderKJ.load_vae = patched_load_vae
+            logging.info("[JDSC Patch] Successfully patched VAELoaderKJ.load_vae to prevent AudioVAE.__init__ TypeError.")
+        except Exception as e:
+            logging.error(f"[JDSC Patch] Failed to apply monkey patch to VAELoaderKJ: {e}")
+    else:
+        logging.warning("[JDSC Patch] VAELoaderKJ class could not be found. Monkey patch skipped.")
+
+# Run the patch immediately during jdsc import
+patch_kjnodes_vae_loader()
