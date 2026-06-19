@@ -73,15 +73,19 @@ class AssetLibrary {
         this.currentCategory = "全部";
         this.searchQuery = "";
         this.isBuilt = false;
+        this.renderChunkSize = 48;
+        this.searchTimer = null;
+        this.pendingRenderFrame = null;
         
         // Navigation state for lightbox
         this.currentDisplayItems = [];
         this.currentLightboxIndex = -1;
     }
 
-    async fetchAssets() {
+    async fetchAssets(force = false) {
         try {
-            const res = await fetch("/jdsc/assets/list");
+            const url = force ? "/jdsc/assets/list?force=1" : "/jdsc/assets/list";
+            const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
                 if (data.success) {
@@ -116,7 +120,7 @@ class AssetLibrary {
             });
             const data = await res.json();
             if (data.success) {
-                await this.refresh();
+                await this.refresh(true);
             } else {
                 alert("删除失败: " + data.error);
             }
@@ -201,7 +205,8 @@ class AssetLibrary {
         searchInput.placeholder = "搜索当前分类...";
         searchInput.oninput = (e) => {
             this.searchQuery = e.target.value.toLowerCase();
-            this.renderGrid();
+            if (this.searchTimer) clearTimeout(this.searchTimer);
+            this.searchTimer = setTimeout(() => this.renderGrid(), 120);
         };
 
         headerLeft.append(title, searchInput);
@@ -217,7 +222,7 @@ class AssetLibrary {
         const refreshBtn = document.createElement("button");
         refreshBtn.className = "jdsc-asset-btn";
         refreshBtn.textContent = "🔄 刷新";
-        refreshBtn.onclick = () => this.refresh();
+        refreshBtn.onclick = () => this.refresh(true);
 
         const closeBtn = document.createElement("button");
         closeBtn.className = "jdsc-asset-close";
@@ -240,9 +245,22 @@ class AssetLibrary {
         this.grid = document.createElement("div");
         this.grid.className = "jdsc-asset-grid";
 
-        this.content.append(this.grid);
+        this.sentinel = document.createElement("div");
+        this.sentinel.style.height = "20px";
+        this.sentinel.style.width = "100%";
+
+        this.content.append(this.grid, this.sentinel);
         body.append(this.sidebar, this.content);
         this.modal.append(header, body);
+
+        // Infinite Scroll Observer
+        this._renderState = { items: [], index: 0, hasMore: false };
+        this.observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting && this._renderState && this._renderState.hasMore) {
+                this._renderNextChunk();
+            }
+        }, { root: this.content, rootMargin: '400px' });
+        this.observer.observe(this.sentinel);
 
         document.body.appendChild(this.modal);
 
@@ -531,8 +549,8 @@ class AssetLibrary {
         this.showLightboxImage();
     }
 
-    async refresh() {
-        await this.fetchAssets();
+    async refresh(force = false) {
+        await this.fetchAssets(force);
         this.renderSidebar();
         this.renderGrid();
     }
@@ -604,7 +622,7 @@ class AssetLibrary {
                     const data = await res.json();
                     if(data.success) {
                         if(this.currentCategory === name) this.currentCategory = "全部";
-                        this.refresh();
+                        this.refresh(true);
                     } else {
                         alert(data.error);
                     }
@@ -707,7 +725,7 @@ class AssetLibrary {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    this.refresh();
+                    this.refresh(true);
                 } else {
                     alert("添加失败: " + data.error);
                 }
@@ -718,8 +736,245 @@ class AssetLibrary {
         this.sidebar.append(addBtn);
     }
 
+    getAssetImageUrl(item) {
+        return `/jdsc/assets/image?category=${encodeURIComponent(item.category)}&filename=${encodeURIComponent(item.filename)}`;
+    }
+
+    getAssetThumbUrl(item) {
+        return `/jdsc/assets/thumb?category=${encodeURIComponent(item.category)}&filename=${encodeURIComponent(item.filename)}`;
+    }
+
+    createAssetCard(item, index) {
+        const url = this.getAssetImageUrl(item);
+        const thumbUrl = this.getAssetThumbUrl(item);
+        const box = document.createElement("div");
+        box.className = "jdsc-asset-item";
+
+        const img = document.createElement("img");
+        img.src = thumbUrl;
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.alt = item.filename;
+        img.draggable = true;
+
+        img.ondragstart = (e) => {
+            e.dataTransfer.setData("text/plain", url);
+            e.dataTransfer.setData("text/uri-list", window.location.origin + url);
+            e.dataTransfer.setData("jdsc/asset", item.filename);
+        };
+
+        const title = document.createElement("div");
+        title.className = "jdsc-asset-item-title";
+        title.textContent = item.filename;
+
+        box.onclick = () => {
+            this.currentLightboxIndex = index;
+            this.showLightboxImage();
+        };
+
+        box.addEventListener("contextmenu", (e) => this.showAssetContextMenu(e, item));
+        box.append(img, title);
+        return box;
+    }
+
+    showAssetContextMenu(e, item) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const existingMenu = document.getElementById("jdsc-asset-context-menu");
+        if (existingMenu) existingMenu.remove();
+
+        const menu = document.createElement("div");
+        menu.id = "jdsc-asset-context-menu";
+        menu.style.position = "fixed";
+
+        const menuWidth = 140;
+        const menuHeight = 100;
+        let left = e.clientX;
+        let top = e.clientY;
+        if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth;
+        if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight;
+
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+        menu.style.background = "#2a2a2a";
+        menu.style.border = "1px solid #444";
+        menu.style.borderRadius = "5px";
+        menu.style.padding = "5px 0";
+        menu.style.zIndex = "10005";
+        menu.style.boxShadow = "0 2px 10px rgba(0,0,0,0.5)";
+        menu.style.color = "#eee";
+        menu.style.minWidth = "140px";
+
+        const createItem = (text, onClick) => {
+            const el = document.createElement("div");
+            el.textContent = text;
+            el.style.padding = "8px 15px";
+            el.style.cursor = "pointer";
+            el.style.fontSize = "14px";
+            el.onmouseenter = () => el.style.background = "#3a3a3a";
+            el.onmouseleave = () => el.style.background = "transparent";
+            el.onclick = (ev) => {
+                ev.stopPropagation();
+                menu.remove();
+                if (onClick) onClick();
+            };
+            return el;
+        };
+
+        const copyItem = createItem("复制图片", async () => {
+            if (!navigator.clipboard || !navigator.clipboard.write) {
+                alert("复制失败：当前浏览器环境不支持写入图片剪贴板。");
+                return;
+            }
+            try {
+                const response = await fetch(this.getAssetImageUrl(item));
+                const blob = await response.blob();
+                await navigator.clipboard.write([
+                    new ClipboardItem({ [blob.type]: blob })
+                ]);
+                const tip = document.createElement("div");
+                tip.textContent = "图片已复制到剪贴板";
+                tip.style.cssText = "position:fixed;top:20px;right:20px;background:#52c41a;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)";
+                document.body.appendChild(tip);
+                setTimeout(() => tip.remove(), 2500);
+            } catch (err) {
+                console.error("复制失败:", err);
+                alert("复制图片失败，请检查浏览器权限。");
+            }
+        });
+
+        const moveItem = createItem("移动到...");
+        moveItem.style.position = "relative";
+
+        const subMenu = document.createElement("div");
+        subMenu.style.display = "none";
+        subMenu.style.position = "absolute";
+        subMenu.style.left = "100%";
+        subMenu.style.top = "0";
+        subMenu.style.background = "#2a2a2a";
+        subMenu.style.border = "1px solid #444";
+        subMenu.style.borderRadius = "5px";
+        subMenu.style.padding = "5px 0";
+        subMenu.style.boxShadow = "0 2px 10px rgba(0,0,0,0.5)";
+        subMenu.style.minWidth = "140px";
+
+        this.categories.forEach(cat => {
+            if (cat.name === "预览+历史记录" || cat.name === item.category) return;
+            const catItem = createItem(cat.name, async () => {
+                try {
+                    const res = await fetch("/jdsc/assets/move_asset", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            source_category: item.category,
+                            filename: item.filename,
+                            target_category: cat.name
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        this.refresh(true);
+                    } else {
+                        alert("移动失败: " + data.error);
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            });
+            subMenu.appendChild(catItem);
+        });
+
+        if (subMenu.children.length === 0) {
+            const emptyItem = document.createElement("div");
+            emptyItem.textContent = "没有其他分类";
+            emptyItem.style.padding = "8px 15px";
+            emptyItem.style.fontSize = "12px";
+            emptyItem.style.color = "#888";
+            subMenu.appendChild(emptyItem);
+        }
+
+        moveItem.onmouseenter = () => {
+            moveItem.style.background = "#3a3a3a";
+            subMenu.style.display = "block";
+        };
+        moveItem.onmouseleave = () => {
+            moveItem.style.background = "transparent";
+            subMenu.style.display = "none";
+        };
+        moveItem.appendChild(subMenu);
+
+        const delItem = createItem("删除", () => {
+            this.deleteAsset(item.category, item.filename);
+        });
+        delItem.style.color = "#ff5555";
+
+        menu.append(copyItem, moveItem, delItem);
+        document.body.appendChild(menu);
+
+        const closeMenu = (ev) => {
+            if (!menu.contains(ev.target)) {
+                menu.remove();
+                document.removeEventListener("click", closeMenu);
+                document.removeEventListener("contextmenu", closeMenu);
+            }
+        };
+        setTimeout(() => {
+            document.addEventListener("click", closeMenu);
+            document.addEventListener("contextmenu", closeMenu);
+        }, 0);
+    }
+
+    appendAssetChunk(items, startIndex) {
+        const fragment = document.createDocumentFragment();
+        items.forEach((item, offset) => {
+            fragment.append(this.createAssetCard(item, startIndex + offset));
+        });
+        this.grid.appendChild(fragment);
+    }
+
+    _renderNextChunk() {
+        const state = this._renderState;
+        if (!state || !state.items || state.index >= state.items.length) {
+            if (state) state.hasMore = false;
+            if (this.sentinel) this.sentinel.style.display = "none";
+            return;
+        }
+
+        const start = state.index;
+        const end = Math.min(start + this.renderChunkSize, state.items.length);
+        this.appendAssetChunk(state.items.slice(start, end), start);
+        state.index = end;
+        state.hasMore = end < state.items.length;
+        if (this.sentinel) this.sentinel.style.display = state.hasMore ? "block" : "none";
+    }
+
+    _fillGridViewport() {
+        if (this.pendingRenderFrame) cancelAnimationFrame(this.pendingRenderFrame);
+        this.pendingRenderFrame = requestAnimationFrame(() => {
+            this.pendingRenderFrame = null;
+            let guard = 0;
+            while (
+                this._renderState?.hasMore &&
+                this.content &&
+                this.content.scrollHeight <= this.content.clientHeight + 300 &&
+                guard < 3
+            ) {
+                this._renderNextChunk();
+                guard += 1;
+            }
+        });
+    }
+
     renderGrid() {
         this.grid.innerHTML = "";
+        if (this.pendingRenderFrame) {
+            cancelAnimationFrame(this.pendingRenderFrame);
+            this.pendingRenderFrame = null;
+        }
+        if (this.content) {
+            this.content.scrollTop = 0;
+        }
         
         let displayItems = [];
         
@@ -748,9 +1003,18 @@ class AssetLibrary {
         this.currentDisplayItems = displayItems;
 
         if (displayItems.length === 0) {
+            this._renderState = { items: [], index: 0, hasMore: false };
+            if (this.sentinel) this.sentinel.style.display = "none";
             this.grid.innerHTML = '<div class="jdsc-asset-empty">没有找到素材。请点击右上角"打开硬盘目录"添加图片。</div>';
             return;
         }
+
+        this._renderState = { items: displayItems, index: 0, hasMore: displayItems.length > 0 };
+        this._renderNextChunk();
+        this._fillGridViewport();
+        return;
+
+        const fragment = document.createDocumentFragment();
 
         displayItems.forEach((item, index) => {
             const url = `/jdsc/assets/image?category=${encodeURIComponent(item.category)}&filename=${encodeURIComponent(item.filename)}`;
@@ -856,7 +1120,7 @@ class AssetLibrary {
                             });
                             const data = await res.json();
                             if (data.success) {
-                                this.refresh();
+                                this.refresh(true);
                             } else {
                                 alert("移动失败: " + data.error);
                             }
@@ -936,14 +1200,19 @@ class AssetLibrary {
             });
             
             box.append(img, title);
-            this.grid.append(box);
+            fragment.append(box);
         });
+        
+        this.grid.appendChild(fragment);
     }
 
     async show() {
         this.buildUI();
-        await this.refresh();
         this.modal.style.display = "flex";
+        if (this.categories.length === 0) {
+            this.grid.innerHTML = '<div class="jdsc-asset-empty">正在加载素材...</div>';
+        }
+        await this.refresh();
     }
 
     hide() {

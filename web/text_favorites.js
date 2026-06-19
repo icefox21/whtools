@@ -13,6 +13,8 @@
     const KEY_LAST_CAT = "jdsc:textFavsLastCat"; // 记录上次选中的分类
     const KEY_CUSTOM_CATS = "jdsc:tf_custom_cats"; // 记录用户创建的空分类
     let TEXT_FAVS_CACHE = null;
+    let TEXT_FAVS_SYNC_PROMISE = null;
+    let TEXT_FAVS_SAVE_PROMISE = null;
 
     function getCustomCats() {
         try { const s = localStorage.getItem(KEY_CUSTOM_CATS); return s ? JSON.parse(s) : []; } catch { return []; }
@@ -44,14 +46,27 @@
 
     // 从服务器同步文本收藏数据
     async function syncTextFavsFromServer() {
-        try {
-            const res = await fetch('/jdsc/text_favorites');
-            if (res && res.ok) {
-                const data = await res.json();
-                TEXT_FAVS_CACHE = migrateData(data);
+        if (TEXT_FAVS_SYNC_PROMISE) return TEXT_FAVS_SYNC_PROMISE;
+        TEXT_FAVS_SYNC_PROMISE = (async () => {
+            if (TEXT_FAVS_SAVE_PROMISE) {
+                try { await TEXT_FAVS_SAVE_PROMISE; } catch { }
             }
-        } catch (e) {
-            console.warn('[TextFavorites] 从服务器同步失败:', e);
+            try {
+                const res = await fetch('/jdsc/text_favorites');
+                if (res && res.ok) {
+                    const data = await res.json();
+                    TEXT_FAVS_CACHE = migrateData(data);
+                    try { localStorage.setItem(KEY_TEXT_FAVS, JSON.stringify(TEXT_FAVS_CACHE)); } catch { }
+                }
+            } catch (e) {
+                console.warn('[TextFavorites] 从服务器同步失败:', e);
+            }
+            return TEXT_FAVS_CACHE || {};
+        })();
+        try {
+            return await TEXT_FAVS_SYNC_PROMISE;
+        } finally {
+            TEXT_FAVS_SYNC_PROMISE = null;
         }
     }
 
@@ -68,7 +83,8 @@
                 migrated[key] = {
                     content: val,
                     category: "SFW",
-                    tags: []
+                    tags: [],
+                    added_time: 0
                 };
                 hasChanges = true;
             } else if (typeof val === 'object' && val.content) {
@@ -76,7 +92,8 @@
                 migrated[key] = {
                     content: val.content,
                     category: val.category || "SFW",
-                    tags: val.tags || []
+                    tags: val.tags || [],
+                    added_time: Number(val.added_time || val.created_time || val.time || 0) || 0
                 };
             } else {
                 // 未知格式，保留原样或跳过
@@ -108,13 +125,16 @@
 
             localStorage.setItem(KEY_TEXT_FAVS, JSON.stringify(TEXT_FAVS_CACHE));
 
-            fetch('/jdsc/text_favorites_save', {
+            TEXT_FAVS_SAVE_PROMISE = fetch('/jdsc/text_favorites_save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(TEXT_FAVS_CACHE)
             }).catch(e => {
                 console.warn('[TextFavorites] 保存到服务器失败:', e);
+            }).finally(() => {
+                TEXT_FAVS_SAVE_PROMISE = null;
             });
+            return TEXT_FAVS_SAVE_PROMISE;
         } catch (e) {
             console.error('[TextFavorites] 保存失败:', e);
         }
@@ -140,6 +160,35 @@
         } catch {
             return "SFW";
         }
+    }
+
+    function markGraphDirty(node) {
+        try {
+            const graph = node?.graph || window.app?.graph;
+            if (graph && typeof graph.setDirtyCanvas === "function") {
+                graph.setDirtyCanvas(true, true);
+            } else if (window.app?.canvas && typeof window.app.canvas.setDirty === "function") {
+                window.app.canvas.setDirty(true, true);
+            }
+        } catch { }
+    }
+
+    function setTextWidgetValue(node, widget, value) {
+        if (!widget) return;
+        const text = String(value ?? "");
+        widget.value = text;
+        if (widget.inputEl) widget.inputEl.value = text;
+        if (widget.element) widget.element.value = text;
+        try { if (widget.callback) widget.callback(text); } catch { }
+        node.properties = Object.assign({}, node.properties || {}, { __manual_text_for_pass: text });
+        markGraphDirty(node);
+    }
+
+    function getTextWidgetValue(widget) {
+        if (!widget) return "";
+        if (widget.inputEl && typeof widget.inputEl.value !== "undefined") return String(widget.inputEl.value || "");
+        if (widget.element && typeof widget.element.value !== "undefined") return String(widget.element.value || "");
+        return String(widget.value || "");
     }
 
     // 注入 CSS 样式
@@ -390,8 +439,9 @@
     }
 
     // 打开文本收藏对话框
-    function openTextFavsModal(node) {
+    async function openTextFavsModal(node) {
         ensureTextFavsStyles();
+        await syncTextFavsFromServer();
         const favs = getTextFavs();
         let currentCategory = getLastCategory();
 
@@ -528,32 +578,35 @@
                 // 操作按钮组（hover 时显示）
                 const actionsEl = document.createElement('span');
                 actionsEl.style.cssText = 'display:none; gap:4px; flex-shrink:0;';
+                const canEditCategory = !DEFAULT_CATEGORIES.includes(cat) && cat !== "全部";
 
                 // 改名按钮
-                const renameBtn = document.createElement('span');
-                renameBtn.title = '重命名';
-                renameBtn.textContent = '✏️';
-                renameBtn.style.cssText = 'cursor:pointer; font-size:11px; opacity:0.8;';
-                renameBtn.addEventListener('click', e => {
-                    e.stopPropagation();
-                    const newName = prompt(`将分类 "${cat}" 重命名为:`, cat);
-                    if (!newName || !newName.trim() || newName.trim() === cat) return;
-                    const trimmed = newName.trim();
-                    // 更新所有收藏项的分类
-                    Object.values(favs).forEach(item => {
-                        if (item.category === cat) item.category = trimmed;
+                if (canEditCategory) {
+                    const renameBtn = document.createElement('span');
+                    renameBtn.title = '重命名';
+                    renameBtn.textContent = '✏️';
+                    renameBtn.style.cssText = 'cursor:pointer; font-size:11px; opacity:0.8;';
+                    renameBtn.addEventListener('click', e => {
+                        e.stopPropagation();
+                        const newName = prompt(`将分类 "${cat}" 重命名为:`, cat);
+                        if (!newName || !newName.trim() || newName.trim() === cat) return;
+                        const trimmed = newName.trim();
+                        // 更新所有收藏项的分类
+                        Object.values(favs).forEach(item => {
+                            if (item.category === cat) item.category = trimmed;
+                        });
+                        renameCustomCat(cat, trimmed);
+                        if (currentCategory === cat) currentCategory = trimmed;
+                        saveLastCategory(currentCategory);
+                        saveTextFavs(favs);
+                        renderCategories();
+                        renderGrid();
                     });
-                    renameCustomCat(cat, trimmed);
-                    if (currentCategory === cat) currentCategory = trimmed;
-                    saveLastCategory(currentCategory);
-                    saveTextFavs(favs);
-                    renderCategories();
-                    renderGrid();
-                });
-                actionsEl.appendChild(renameBtn);
+                    actionsEl.appendChild(renameBtn);
+                }
 
                 // 删除分类按钮（"全部" 不可删）
-                if (cat !== '全部') {
+                if (canEditCategory) {
                     const delBtn = document.createElement('span');
                     delBtn.title = '删除此分类（仅删分类，不删词条）';
                     delBtn.textContent = '🗑️';
@@ -623,7 +676,12 @@
         // 渲染网格内容
         function renderGrid() {
             grid.innerHTML = '';
-            const names = Object.keys(favs).sort();
+            const names = Object.keys(favs).sort((a, b) => {
+                const ta = Number(favs[a]?.added_time || 0);
+                const tb = Number(favs[b]?.added_time || 0);
+                if (tb !== ta) return tb - ta;
+                return a.localeCompare(b, 'zh-Hans-CN');
+            });
             let count = 0;
 
             names.forEach(name => {
@@ -675,9 +733,7 @@
                         alert("❌ 无法找到文本输入框");
                         return;
                     }
-                    editWidget.value = item.content;
-                    if (editWidget.callback) editWidget.callback(editWidget.value);
-                    if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                    setTextWidgetValue(node, editWidget, item.content);
 
                     node.properties = node.properties || {};
                     node.properties.current_fav_name = name;
@@ -1057,7 +1113,10 @@
     syncTextFavsFromServer();
 
     window.__jdsc_tf = {
-        openTextFavsModal,
+        openTextFavsModal: (node) => openTextFavsModal(node).catch(e => {
+            console.error('[TextFavorites] 打开失败:', e);
+            alert("打开文本收藏夹失败: " + (e?.message || e));
+        }),
         getTextFavs,
         getLastCategory,
         saveTextFavs,
@@ -1108,7 +1167,7 @@
 
                 // 1. 提示词收藏夹按钮
                 const favsBtn = node.addWidget("button", "提示词收藏夹", null, () => {
-                    try { openTextFavsModal(node); } catch (e) { alert("❌ 打开失败: " + e); }
+                    openTextFavsModal(node).catch(e => alert("❌ 打开失败: " + (e?.message || e)));
                 });
 
                 // 2. 清空并粘贴按钮
@@ -1117,9 +1176,7 @@
                         const editWidget = node.widgets.find(w => w.name === "edit_text");
                         if (editWidget) {
                             const text = await navigator.clipboard.readText();
-                            editWidget.value = text || "";
-                            if (editWidget.callback) editWidget.callback(editWidget.value);
-                            if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                            setTextWidgetValue(node, editWidget, text || "");
                             
                             node.properties = node.properties || {};
                             node.properties.current_fav_name = "";
@@ -1142,13 +1199,13 @@
 
                 // 3. 收藏当前按钮及当前词条显示
                 const currentFavBtn = node.addWidget("button", "🏷️ 词条: (未选择)", null, () => {
-                    try { openTextFavsModal(node); } catch (e) { alert("❌ 打开失败: " + e); }
+                    openTextFavsModal(node).catch(e => alert("❌ 打开失败: " + (e?.message || e)));
                 });
 
                 const saveBtn = node.addWidget("button", "收藏当前", null, () => {
                     try {
                         const editWidget = node.widgets.find(w => w.name === "edit_text");
-                        const currentText = editWidget ? editWidget.value : "";
+                        const currentText = getTextWidgetValue(editWidget);
 
                         if (!currentText || !currentText.trim()) {
                             alert("当前输入框为空，无法收藏");
@@ -1174,10 +1231,12 @@
                         }
 
                         function finalizeSave(cat) {
+                            const oldItem = favs[name.trim()];
                             favs[name.trim()] = {
                                 content: currentText,
                                 category: cat.trim() || "SFW",
-                                tags: []
+                                tags: oldItem?.tags || [],
+                                added_time: Date.now()
                             };
                             saveTextFavs(favs);
                             
@@ -1186,7 +1245,7 @@
                             currentFavBtn.name = "🏷️ 词条: " + name.trim();
 
                             console.log('[TextFavorites] 已收藏:', name.trim());
-                            try { openTextFavsModal(node); } catch (err) { }
+                            openTextFavsModal(node).catch(() => {});
                         }
 
                     } catch (e) {
@@ -1211,9 +1270,7 @@
                 node.addWidget("button", "清空", null, () => {
                     const editWidget = node.widgets.find(w => w.name === "edit_text");
                     if (editWidget) {
-                        editWidget.value = "";
-                        if (editWidget.callback) editWidget.callback("");
-                        if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                        setTextWidgetValue(node, editWidget, "");
                         
                         node.properties = node.properties || {};
                         node.properties.current_fav_name = "";

@@ -14,6 +14,12 @@
 import { app } from "/scripts/app.js";
 import { api } from "/scripts/api.js";
 
+function removeLegacyVersionBanner() {
+    try {
+        document.querySelectorAll(".jdsc-version-banner").forEach(el => el.remove());
+    } catch { }
+}
+
 // ==========================================================================
 // 注册节点到 slot search 弹窗（拉线时的搜索菜单）
 // ==========================================================================
@@ -61,7 +67,7 @@ setTimeout(registerToSlotDefaults, 1000);
 
 // ==========================================================================
 // Queue Selected Output Nodes 功能支持
-// 优先使用 rgthree 插件，如果没有则使用自己的实现
+// 使用 whtools 内置实现，避免依赖 rgthree 的 queueOutputNodes。
 // ==========================================================================
 
 let _jdscQueueNodeIds = null;
@@ -84,14 +90,9 @@ function _jdscRecursiveAddNodes(nodeId, oldOutput, newOutput) {
     return newOutput;
 }
 
-// 初始化 Queue Hook（只在没有 rgthree 时使用）
+// 初始化 Queue Hook
 function _jdscInitQueueHook() {
     if (_jdscQueueHooked) return;
-    if (window.rgthree) {
-        console.log("[whtools] 检测到 rgthree，使用其 queueOutputNodes");
-        _jdscQueueHooked = true;
-        return;
-    }
 
     _jdscQueueHooked = true;
     console.log("[whtools] 初始化自定义 Queue Hook");
@@ -104,7 +105,11 @@ function _jdscInitQueueHook() {
             for (const nodeId of _jdscQueueNodeIds) {
                 _jdscRecursiveAddNodes(nodeId, oldOutput, newOutput);
             }
-            prompt.output = newOutput;
+            if (Object.keys(newOutput).length > 0) {
+                prompt.output = newOutput;
+            } else {
+                throw new Error("[whtools] 未能收集到指定节点依赖，已取消快捷执行。");
+            }
         }
         return originalApiQueuePrompt(index, prompt);
     };
@@ -112,17 +117,6 @@ function _jdscInitQueueHook() {
 
 // 执行 Queue 指定节点
 async function _jdscQueueOutputNodes(nodeIds) {
-    // 优先使用 rgthree
-    if (window.rgthree && window.rgthree.queueOutputNodes) {
-        try {
-            await window.rgthree.queueOutputNodes(nodeIds);
-            return true;
-        } catch (e) {
-            console.error("[whtools] rgthree.queueOutputNodes 失败:", e);
-        }
-    }
-
-    // Fallback: 自己实现
     try {
         _jdscQueueNodeIds = nodeIds;
         await app.queuePrompt(0);
@@ -142,6 +136,8 @@ app.registerExtension({
 
     // 初始化 Queue Hook 和全局快捷键
     async setup() {
+        removeLegacyVersionBanner();
+        setTimeout(removeLegacyVersionBanner, 1000);
         _jdscInitQueueHook();
         registerToSlotDefaults(); // 注册到拉线弹窗
 

@@ -4,6 +4,9 @@
 
 // 工作流管理前端代码
 (() => {
+  if (window.__whtools_workflow_initialized) return;
+  window.__whtools_workflow_initialized = true;
+
   const KEY_WF_FOLDERS = "jdsc:workflow_folders";
   const KEY_WF_FAVS = "jdsc:workflow_favorites";
   const KEY_WF_MODAL_POS = "jdsc:workflowModalPos";
@@ -15,6 +18,10 @@
   let WF_FOLDERS_CACHE = null;
   let WF_FAVS_CACHE = null;
   let WF_HISTORY_CACHE = null;
+
+  // 页面加载时立即同步服务器 settings，确保 getWFHotkey() 在 keydown 时能正确读到已保存的快捷键
+  // 注意：jdsc.js 也会同步，但两者共享 window.__jdsc_settings_cache，先到者写入，后到者覆盖但内容相同
+  syncSettingsFromServer();
 
   // 从服务器同步设置（包括快捷键、模态框位置等）
   async function syncSettingsFromServer() {
@@ -108,11 +115,9 @@
       }
       // 如果是 jdsc: 开头的设置，同步到服务器 settings.json
       if (String(key || '').startsWith('jdsc:')) {
-        // [BUGFIX: Prevent race condition wiping settings.json on page load]
-        // If the settings cache hasn't loaded from the server yet, DO NOT overwrite the entire server file.
+        // 确保缓存已初始化，避免竞态条件导致快捷键保存失败
         if (typeof window.__jdsc_settings_cache === 'undefined') {
-          console.warn('[工作流+] settings_cache not loaded yet, skipped saving to avoid wiping other settings:', key);
-          return;
+          window.__jdsc_settings_cache = {};
         }
         window.__jdsc_settings_cache[key] = val;
         fetch('/jdsc/settings_save', {
@@ -197,6 +202,22 @@
     let favs = loadWF(KEY_WF_FAVS, {});
     if (!favs || typeof favs !== 'object') favs = {};
     return favs;
+  }
+
+  function repairWFFavPath(oldPath, newPath) {
+    if (!oldPath || !newPath || oldPath === newPath) return;
+    try {
+      const favs = getWFFavs();
+      if (!favs[oldPath]) return;
+      const item = favs[oldPath];
+      delete favs[oldPath];
+      item.original_path = newPath;
+      item.original_name = item.original_name || newPath.split(/[\\\/]/).pop();
+      favs[newPath] = item;
+      saveWF(KEY_WF_FAVS, favs);
+    } catch (e) {
+      console.warn('[宸ヤ綔娴?] 淇鏀惰棌璺緞澶辫触:', e);
+    }
   }
 
   // 获取历史记录
@@ -466,7 +487,7 @@
       });
       if (res && res.ok) {
         const data = await res.json();
-        return data.content || null;
+        return data && data.content ? data : null;
       }
       return null;
     } catch {
@@ -497,6 +518,159 @@
   // 记住当前打开的工作流信息 (仅用于当前操作上下文，不用于保存判定)
   let currentWorkflowInfo = null;
 
+  function cleanWorkflowName(name) {
+    const baseName = String(name || "").trim().split(/[\\\/]/).pop();
+    return String(baseName || "")
+      .replace(/\.json$/i, "")
+      .replace(/^\s*\*+\s*/, "")
+      .replace(/\s*\*+\s*$/, "")
+      .replace(/\s+\((modified|unsaved|已修改|未保存)\)$/i, "")
+      .trim();
+  }
+
+  function workflowNameFromPath(filePath) {
+    return cleanWorkflowName(String(filePath || "").split(/[\\\/]/).pop());
+  }
+
+  function bindCurrentWorkflow(filePath, nameNoExt) {
+    const cleanName = cleanWorkflowName(nameNoExt) || workflowNameFromPath(filePath);
+    if (!filePath || !cleanName) return;
+
+    currentWorkflowInfo = {
+      path: filePath,
+      name: cleanName + ".json",
+      nameNoExt: cleanName
+    };
+
+    if (window.app && window.app.graph) {
+      window.app.graph.jdsc_path = filePath;
+      window.app.graph.jdsc_name = cleanName;
+    }
+
+    updateWorkflowTitle(cleanName, filePath);
+  }
+
+  function getCurrentWorkflowDisplayName() {
+    const values = [];
+    const add = (value) => {
+      if (value !== undefined && value !== null) values.push(value);
+    };
+
+    const selectors = [
+      '.p-togglebutton-checked .p-button-label',
+      '.workflow-tab.active .workflow-tab-title',
+      '.workflow-tab.active .title',
+      '.workflow-label.active',
+      '.p-togglebutton-checked'
+    ];
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (el) {
+        add(el.getAttribute('title'));
+        add(el.textContent);
+        add(el.getAttribute('data-jdsc-name'));
+      }
+    }
+
+    const activeWorkflow =
+      window.app?.workflowManager?.activeWorkflow ||
+      window.app?.workflowManager?.workflow ||
+      window.app?.workflow ||
+      null;
+    if (activeWorkflow && typeof activeWorkflow === 'object') {
+      add(activeWorkflow.name);
+      add(activeWorkflow.title);
+      add(activeWorkflow.filename);
+      add(activeWorkflow.fileName);
+      add(workflowNameFromPath(activeWorkflow.path));
+    }
+
+    add(window.__jdsc_active_display_name);
+
+    for (const value of values) {
+      const name = cleanWorkflowName(value);
+      if (name && name !== "工作流+" && !/^unsaved$/i.test(name)) return name;
+    }
+    return "";
+  }
+
+  async function findWorkflowFileByName(nameNoExt) {
+    const target = cleanWorkflowName(nameNoExt).toLowerCase();
+    if (!target) return null;
+
+    try {
+      if (typeof syncFoldersFromServer === 'function') {
+        await syncFoldersFromServer();
+      }
+
+      const folders = getFolders();
+      const visited = new Set();
+
+      const visitFolder = async (folderPath) => {
+        const normalized = String(folderPath || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+        if (!normalized || visited.has(normalized)) return null;
+        visited.add(normalized);
+
+        const data = await listWorkflowFiles(folderPath);
+        for (const file of data.files || []) {
+          const fileNameNoExt = cleanWorkflowName(file.name);
+          if (fileNameNoExt.toLowerCase() === target) {
+            return {
+              path: file.path,
+              nameNoExt: fileNameNoExt,
+              fileName: file.name
+            };
+          }
+        }
+
+        for (const folder of data.subfolders || []) {
+          const found = await visitFolder(folder.path);
+          if (found) return found;
+        }
+        return null;
+      };
+
+      for (const folder of folders || []) {
+        const found = await visitFolder(folder.path);
+        if (found) return found;
+      }
+    } catch (e) {
+      console.warn('[工作流+] 查找同名工作流失败，已忽略:', e);
+    }
+
+    return null;
+  }
+
+  function updateWorkflowTitle(fileName, filePath = "") {
+    const nameNoExt = cleanWorkflowName(fileName);
+    if (!nameNoExt) return;
+
+    try {
+      window.__jdsc_active_display_name = nameNoExt;
+      if (filePath) window.__jdsc_active_save_path = filePath;
+
+      const activeTab = document.querySelector('.p-togglebutton-checked, .workflow-tab.active, .workflow-label.active');
+      if (activeTab) {
+        activeTab.setAttribute('data-jdsc-name', nameNoExt);
+        if (filePath) activeTab.setAttribute('data-jdsc-path', filePath);
+        activeTab.title = filePath || nameNoExt;
+      }
+
+      const label = document.querySelector(
+        '.p-togglebutton-checked .p-button-label, .workflow-tab.active .workflow-tab-title, .workflow-tab.active .title, .workflow-label.active'
+      );
+      if (label && label.children.length === 0) {
+        const oldText = (label.textContent || "").trim();
+        const looksLikeUnsaved = !oldText || /unsaved|未保存/i.test(oldText) || oldText.endsWith("*");
+        if (looksLikeUnsaved || oldText === nameNoExt || oldText === `${nameNoExt}.json`) {
+          label.textContent = nameNoExt;
+        }
+      }
+    } catch (e) {
+      console.warn('[工作流+] 更新标题失败，已忽略:', e);
+    }
+  }
+
   // 打开工作流到画布
   async function openWorkflowInCanvas(filePath) {
     try {
@@ -506,11 +680,18 @@
       console.log('[工作流+] 文件路径:', filePath);
 
       // 加载工作流内容
-      const content = await loadWorkflowContent(filePath);
-      if (!content) {
+      const loaded = await loadWorkflowContent(filePath);
+      if (!loaded || !loaded.content) {
         alert('加载工作流失败：无法读取文件内容');
         return;
       }
+
+      if (loaded.path && loaded.path !== filePath) {
+        console.log('[宸ヤ綔娴?] 宸蹭慨澶嶆敹钘忚矾寰勶細', filePath, '=>', loaded.path);
+        repairWFFavPath(filePath, loaded.path);
+        filePath = loaded.path;
+      }
+      const content = loaded.content;
 
       let workflow;
       try {
@@ -622,31 +803,108 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           path: filePath,
-          content: JSON.stringify(workflowData, null, 2)
+          content: JSON.stringify(workflowData, null, 2),
+          overwrite: true
         })
       });
-      if (res && res.ok) {
-        const result = await res.json();
-        if (result.success) {
-          console.log('[工作流+] ✓ 保存成功:', filePath);
-
-          // 更新标题（保存后可能标题又变成Unsaved了）
-          const fileName = filePath.split(/[\\\/]/).pop().replace(/\.json$/i, '');
-          updateWorkflowTitle(fileName);
-
-          // 显示保存成功提示
-          const notification = document.createElement('div');
-          notification.textContent = '✓ 已保存: ' + fileName;
-          notification.style.cssText = 'position:fixed;top:20px;right:20px;background:#52c41a;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
-          document.body.appendChild(notification);
-          setTimeout(() => notification.remove(), 2000);
-        } else {
-          console.error('[工作流+] 保存失败:', result.error);
-        }
+      if (!res || !res.ok) {
+        throw new Error(`保存请求失败: HTTP ${res ? res.status : 'unknown'}`);
       }
+
+      const result = await res.json();
+      if (!result.success) {
+        throw new Error(result.error || '保存失败');
+      }
+
+      console.log('[工作流+] ✓ 保存成功:', filePath);
+
+      // 更新标题（保存后可能标题又变成Unsaved了）
+      const fileName = filePath.split(/[\\\/]/).pop().replace(/\.json$/i, '');
+      bindCurrentWorkflow(filePath, fileName);
+
+      // 显示保存成功提示
+      const notification = document.createElement('div');
+      notification.textContent = '✓ 已保存: ' + fileName;
+      notification.style.cssText = 'position:fixed;top:20px;right:20px;background:#52c41a;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
+      document.body.appendChild(notification);
+      setTimeout(() => notification.remove(), 2000);
     } catch (e) {
       console.error('[工作流+] 保存出错:', e);
+      throw e;
     }
+  }
+
+  async function saveCurrentCanvasAsWorkflow(defaultName = "", options = {}) {
+    const rawName = prompt(
+      "请输入工作流名称：",
+      (defaultName || "未命名工作流_" + Math.floor(Date.now() / 1000)).replace(/\.json$/i, '')
+    );
+    if (!rawName) return null;
+
+    let targetDir = "user/default/workflows";
+    const folders = getFolders();
+    if (folders && folders.length > 0) {
+      targetDir = folders[0].path;
+    }
+
+    const nameNoExt = rawName.trim().replace(/\.json$/i, '');
+    if (!nameNoExt) return null;
+
+    const fileName = nameNoExt + ".json";
+    const path = targetDir.replace(/[\\\/]+$/, '') + "/" + fileName;
+
+    if (!window.app || !window.app.graph) {
+      alert("无法提取当前画布上的工作流数据！");
+      return null;
+    }
+
+    const workflowData = window.app.graph.serialize();
+    const saveOnce = async (overwrite) => {
+      const res = await fetch('/jdsc/workflow_save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path,
+          content: JSON.stringify(workflowData, null, 2),
+          overwrite
+        })
+      });
+      let result = null;
+      try { result = await res.json(); } catch { }
+      return { ok: !!(res && res.ok && result && result.success), result };
+    };
+
+    let saved = await saveOnce(false);
+    if (!saved.ok) {
+      const msg = (saved.result && saved.result.error) || "";
+      if (msg.includes("文件已存在")) {
+        if (options && options.linkExisting) {
+          const useExisting = confirm(`已存在同名工作流：\n${fileName}\n\n是否直接把这个已有文件加入流收藏？\n\n这不会覆盖文件。`);
+          if (!useExisting) return null;
+          bindCurrentWorkflow(path, nameNoExt);
+          addToWFHistory(nameNoExt, path, 'jdsc');
+          return { path, nameNoExt, fileName, linkedExisting: true };
+        }
+        const overwrite = confirm(`已存在同名工作流：\n${fileName}\n\n是否用当前画布覆盖它？`);
+        if (!overwrite) return null;
+        saved = await saveOnce(true);
+      }
+    }
+
+    if (!saved.ok) {
+      alert("物理落盘保存失败：" + ((saved.result && saved.result.error) || "请检查控制台报错"));
+      return null;
+    }
+
+    bindCurrentWorkflow(path, nameNoExt);
+
+    if (typeof syncFoldersFromServer === 'function') {
+      await syncFoldersFromServer();
+    }
+    addToWFHistory(nameNoExt, path, 'jdsc');
+
+    console.log('[工作流+] 画布已保存为工作流:', path);
+    return { path, nameNoExt, fileName };
   }
 
   // (已移除) 旧的标签监听逻辑
@@ -881,10 +1139,12 @@
       const currentHk = getWFHotkey();
       const newHk = prompt(`设置工作流+快捷键（当前：${currentHk.toUpperCase()}）\n格式：ctrl+shift+w`, currentHk);
       if (newHk && newHk !== currentHk) {
-        saveWFHotkey(newHk.toLowerCase().trim());
+        const lowerHk = newHk.toLowerCase().trim();
+        saveWFHotkey(lowerHk);
+        window.__jdsc_wfHkStr_override = lowerHk;
         const disp = newHk.toUpperCase().split("+").join(" + ");
-        alert(`快捷键已设置为：${disp}`);
-        location.reload();
+        alert(`快捷键已设置为：${disp}（立即生效，无需刷新）`);
+        // 不再 location.reload()，keydown 监听器每次动态读取 override，新快捷键立即可用
       }
     };
     const btnAddCurrent = createEl("div", "jdsc-btn", "收藏当前工作流");
@@ -892,8 +1152,7 @@
     btnAddCurrent.onclick = async () => {
       try {
         console.log('[工作流+] ========== 收藏当前工作流触发 ==========');
-
-
+        const displayName = getCurrentWorkflowDisplayName();
 
         // === 1. 直接从 Graph 获取路径 ===
         let path = null;
@@ -914,77 +1173,42 @@
           fileName = currentWorkflowInfo.name;
         }
 
-        // === 2.5 拦截与另存为机制 (Save As Hook) ===
-        // 如果系统发现当前工作流已经绑定了物理路径，主动询问用户是“覆盖更新”还是“另存为新文件”
-        if (path) {
-            const doUpdate = confirm(`⚠️ 当前工作流已绑定到物理文件:\n${nameNoExt}\n\n[确定]：覆盖更新该原文件 (相当于直接保存)\n[取消]：将此画布“另存为”一个全新的工作流`);
-            if (!doUpdate) {
-                // 用户选择另存为，强制剥离当前的物理路径身份，引导至下方的新建流程
-                path = null;
-                nameNoExt = null;
-                fileName = null;
-                if (window.app && window.app.graph) {
-                    window.app.graph.jdsc_path = null;
-                    window.app.graph.jdsc_name = null;
-                }
-            }
+        const boundName = cleanWorkflowName(nameNoExt);
+        if (path && displayName && boundName && displayName.toLowerCase() !== boundName.toLowerCase()) {
+          const matched = await findWorkflowFileByName(displayName);
+          if (matched) {
+            path = matched.path;
+            nameNoExt = matched.nameNoExt;
+            fileName = matched.fileName;
+            bindCurrentWorkflow(path, nameNoExt);
+            console.log('[收藏] 检测到原生另存为后的新文件，已改用:', path);
+          } else {
+            console.warn('[收藏] 当前标签名与工作流+绑定不一致，已丢弃旧绑定:', { displayName, boundName, path });
+            path = null;
+            nameNoExt = displayName;
+            fileName = displayName + ".json";
+          }
+        }
+
+        if (!path && displayName) {
+          const matched = await findWorkflowFileByName(displayName);
+          if (matched) {
+            path = matched.path;
+            nameNoExt = matched.nameNoExt;
+            fileName = matched.fileName;
+            bindCurrentWorkflow(path, nameNoExt);
+            console.log('[收藏] 已按当前标签名匹配到现有工作流:', path);
+          }
         }
 
         if (!path) {
-          const customName = prompt("⚠ 发现您当前的工作流可能是拖拽导入或原生加载的，尚未绑定本地路径。\n\n请输入一个名称，我们将为您瞬间在本地生成该文件并强制加入收藏：", "未命名工作流_" + Math.floor(Date.now()/1000));
-          if (!customName) return;
-          
-          let targetDir = "user/default/workflows";
-          const folders = getFolders();
-          if (folders && folders.length > 0) {
-             targetDir = folders[0].path;
-          }
-          
-          nameNoExt = customName.trim().replace(/\.json$/i, '');
-          fileName = nameNoExt + ".json";
-          path = targetDir.replace(/[\\\/]+$/, '') + "/" + fileName;
-          
-          // === 物理级防覆盖查重 (Collision Prevention) ===
-          const favs = getWFFavs();
-          if (favs[path]) {
-             alert(`⛔ 收藏失败！\n\n该目录下已存在名为 "${fileName}" 的收藏记录！\n为了防止您的旧工作流被意外覆盖导致数据丢失，请换一个名称。`);
-             return;
-          }
-          
-          let workflowData = {};
-          if (window.app && window.app.graph) {
-             workflowData = window.app.graph.serialize();
-          } else {
-             alert("无法提取当前画布上的工作流数据！");
-             return;
-          }
-          
-          const saveRes = await fetch('/jdsc/workflow_save', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-                path: path,
-                content: JSON.stringify(workflowData, null, 2)
-             })
-          });
-          
-          if (!saveRes.ok) {
-             alert("物理落盘保存失败，请检查控制台报错！");
-             return;
-          }
-          
-          console.log('[工作流+] 智能反向提取落盘成功，新路径:', path);
-          
-          // 强制反向绑定到当前画布，赋予其合法身份
-          if (window.app && window.app.graph) {
-             window.app.graph.jdsc_path = path;
-             window.app.graph.jdsc_name = nameNoExt;
-          }
-          
-          // 触发后端的文件夹结构同步，因为新增了物理文件
-          if (typeof syncFoldersFromServer === 'function') {
-             await syncFoldersFromServer();
-          }
+          const shouldSave = confirm("当前工作流没有绑定本地路径，无法直接作为链接收藏。\n\n是否先保存到默认工作流文件夹，然后自动加入流收藏？");
+          if (!shouldSave) return;
+          const saved = await saveCurrentCanvasAsWorkflow(displayName || ("未命名工作流_" + Math.floor(Date.now()/1000)), { linkExisting: true });
+          if (!saved) return;
+          path = saved.path;
+          nameNoExt = saved.nameNoExt;
+          fileName = saved.fileName;
         }
 
         const favs = getWFFavs();
@@ -1225,6 +1449,26 @@
           }));
         }
 
+        if (!data.path) {
+          menu.appendChild(createMenuItem('💾', '将当前画布保存到工作流+', async () => {
+            const saved = await saveCurrentCanvasAsWorkflow(data.name || "");
+            if (!saved) return;
+            const favsNow = getWFFavs();
+            favsNow[saved.path] = favsNow[saved.path] || {
+              custom_name: saved.nameNoExt,
+              original_name: saved.fileName,
+              original_path: saved.path,
+              starred: false,
+              added_time: Date.now()
+            };
+            favsNow[saved.path].custom_name = saved.nameNoExt;
+            favsNow[saved.path].original_name = saved.fileName;
+            favsNow[saved.path].original_path = saved.path;
+            saveWF(KEY_WF_FAVS, favsNow);
+            refresh();
+          }));
+        }
+
         // 从历史中移除
         menu.appendChild(createMenuItem('🗑️', '从历史中移除', () => {
           let hist = getWFHistory();
@@ -1402,17 +1646,19 @@
         } else {
           for (const item of filtered) {
             const row = createEl("div", "jdsc-wf-fav-item jdsc-wf-history-item");
-            const icon = item.method === 'jdsc' ? "📄" : "📝";
+            const hasPath = !!item.path;
+            const icon = hasPath ? "📄" : "📝";
             const itemName = createEl("div", "jdsc-wf-fav-name", `${icon} ${item.name}`);
-            if (item.method !== 'jdsc') itemName.title = "通过原生方式打开（可能无路径）";
+            if (!hasPath) itemName.title = "外部导入记录，仅记录名称和时间";
             const timeStr = new Date(item.time).toLocaleString();
-            const timeDiv = createEl("div", "jdsc-wf-fav-original", `时间: ${timeStr}`);
-            const pathDiv = createEl("div", "jdsc-wf-fav-path", item.path || "无路径信息");
+            const sourceText = hasPath ? "工作流+打开" : "外部导入";
+            const timeDiv = createEl("div", "jdsc-wf-fav-original", `${sourceText} · ${timeStr}`);
+            const pathDiv = createEl("div", "jdsc-wf-fav-path", item.path || "未绑定路径 · 右键可将当前画布保存到工作流+");
 
             row.addEventListener('contextmenu', (e) => {
               e.preventDefault();
               e.stopPropagation();
-              showWFContextMenu(e, { name: item.name, path: item.path }, 'history');
+              showWFContextMenu(e, { name: item.name, path: item.path, method: item.method, time: item.time }, 'history');
             });
 
             // 包装内容容器
@@ -1433,7 +1679,7 @@
                 openWorkflowInCanvas(item.path);
                 toggle();
               } else {
-                alert("此记录无路径信息，无法直接打开。");
+                alert("这是外部导入记录，只保留了文件名和打开时间。\n如果当前画布仍是这个工作流，可以右键选择“将当前画布保存到工作流+”。");
               }
             };
             body.appendChild(row);
@@ -1669,10 +1915,14 @@
     return modal;
   };
   document.addEventListener('keydown', (e) => {
-    const hkStr = getWFHotkey();
+    // 忽略输入状态，避免在输入框打字时触发快捷键
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) return;
+
+    const hkStr = window.__jdsc_wfHkStr_override || getWFHotkey();
     const hkSpec = normalizeHotkeyString(hkStr);
     if (matchHotkey(e, hkSpec)) {
       e.preventDefault();
+      e.stopPropagation(); // 关键：在捕获阶段阻止事件下发给画布
       const existing = document.querySelector('.jdsc-modal .jdsc-title');
       if (existing && existing.textContent === '工作流+') {
         const modal = existing.closest('.jdsc-modal');
@@ -1681,7 +1931,7 @@
         if (window.__jdsc_toggleWorkflow) window.__jdsc_toggleWorkflow();
       }
     }
-  });
+  }, true); // 关键：启用事件捕获模式，先于 ComfyUI 画布的键盘监听器触发
 
   // 遍历已有文件夹列表
   function getFolders() {
@@ -1779,6 +2029,13 @@
   document.addEventListener('keydown', async (e) => {
     // 只拦截 Ctrl+S (Windows/Linux) 或 Cmd+S (Mac)
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      const hasBoundWorkflow = !!(window.app && window.app.graph && window.app.graph.jdsc_path);
+      if (hasBoundWorkflow && (e.repeat || window.__whtools_workflow_saving)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        return;
+      }
       try {
         // === 核心修改：只信任绑定在 Graph 对象上的路径 ===
         // 任何 DOM 属性、全局变量、标签状态都不可靠
@@ -1817,11 +2074,14 @@
         if (savePath) {
           e.preventDefault();
           e.stopPropagation();
+          if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+          window.__whtools_workflow_saving = true;
 
           // === 3. 用户确认对话框 ===
           const confirmMsg = `即将保存工作流，请确认：\n\n文件名: ${saveName || '未知'}\n完整路径: ${savePath}\n\n这是您要保存的文件吗？`;
           if (!confirm(confirmMsg)) {
             console.log('[工作流+] 用户取消保存');
+            window.__whtools_workflow_saving = false;
             return;
           }
 
@@ -1859,6 +2119,8 @@
             setTimeout(() => notificationError.remove(), 3000);
 
             console.error('[工作流+] ✗ Ctrl+S 拦截保存失败:', err);
+          } finally {
+            window.__whtools_workflow_saving = false;
           }
         }
         // 如果没有保存路径，让默认保存行为继续执行

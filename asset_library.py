@@ -4,6 +4,8 @@ import shutil
 import urllib.parse
 import base64
 import uuid
+import time
+import hashlib
 import folder_paths
 from server import PromptServer
 from aiohttp import web
@@ -12,6 +14,82 @@ from aiohttp import web
 DATA_DIRECTORY = os.path.join(os.path.dirname(__file__), "data")
 CONFIG_FILE = os.path.join(DATA_DIRECTORY, "asset_config.json")
 HISTORY_DIR = os.path.join(DATA_DIRECTORY, "history_images")
+THUMB_DIR = os.path.join(DATA_DIRECTORY, "asset_thumbs")
+IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp')
+ASSET_LIST_CACHE_MAX_AGE = 5.0
+_ASSET_LIST_CACHE = {}
+
+def clear_asset_list_cache():
+    _ASSET_LIST_CACHE.clear()
+
+def list_asset_files(path, force=False):
+    if not path or not os.path.isdir(path):
+        return []
+
+    cache_key = os.path.normcase(os.path.abspath(path))
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return []
+
+    fingerprint = (
+        getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000)),
+        getattr(stat, "st_ctime_ns", int(stat.st_ctime * 1_000_000_000)),
+    )
+    now = time.monotonic()
+    cached = _ASSET_LIST_CACHE.get(cache_key)
+    if (
+        not force
+        and cached
+        and cached.get("fingerprint") == fingerprint
+        and now - cached.get("time", 0) < ASSET_LIST_CACHE_MAX_AGE
+    ):
+        return list(cached.get("files", []))
+
+    files = []
+    try:
+        with os.scandir(path) as entries:
+            for entry in entries:
+                try:
+                    if entry.is_file() and entry.name.lower().endswith(IMAGE_EXTENSIONS):
+                        files.append(entry.name)
+                except OSError:
+                    continue
+    except OSError:
+        files = []
+
+    files.sort(reverse=True)
+    _ASSET_LIST_CACHE[cache_key] = {
+        "fingerprint": fingerprint,
+        "time": now,
+        "files": files,
+    }
+    return list(files)
+
+def build_asset_thumbnail(filepath, max_size=320):
+    from PIL import Image, ImageOps
+
+    stat = os.stat(filepath)
+    cache_key = f"{os.path.abspath(filepath)}|{stat.st_mtime_ns}|{stat.st_size}"
+    thumb_name = hashlib.sha1(cache_key.encode("utf-8", "surrogatepass")).hexdigest() + ".png"
+    thumb_path = os.path.join(THUMB_DIR, thumb_name)
+    if os.path.exists(thumb_path):
+        return thumb_path
+
+    os.makedirs(THUMB_DIR, exist_ok=True)
+    with Image.open(filepath) as img:
+        try:
+            if getattr(img, "is_animated", False):
+                img.seek(0)
+        except EOFError:
+            pass
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+        resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
+        img.thumbnail((max_size, max_size), resample)
+        img.save(thumb_path, "PNG", optimize=True)
+    return thumb_path
 
 def get_config():
     """读取自定义目录配置"""
@@ -28,6 +106,7 @@ def save_config(config):
     os.makedirs(DATA_DIRECTORY, exist_ok=True)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
+    clear_asset_list_cache()
 
 def ensure_config():
     """初始化默认配置"""
@@ -54,24 +133,17 @@ def register_routes():
     async def get_assets_list(request):
         """返回所有配置目录及其下的文件列表"""
         try:
+            force = request.query.get("force", "").lower() in ("1", "true", "yes")
             config = ensure_config()
             categories = []
             
             for d in config.get("directories", []):
                 name = d.get("name")
                 path = d.get("path")
-                files = []
-                if path and os.path.exists(path) and os.path.isdir(path):
-                    try:
-                        for f in os.listdir(path):
-                            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp')):
-                                files.append(f)
-                    except:
-                        pass
                 categories.append({
                     "name": name,
                     "path": path,
-                    "files": sorted(files, reverse=True) # 按文件名倒序，方便看到最新的图
+                    "files": list_asset_files(path, force=force) # 按文件名倒序，方便看到最新的图
                 })
                     
             return web.json_response({"success": True, "categories": categories})
@@ -113,9 +185,52 @@ def register_routes():
                 content_type = "image/webp"
             elif ext == ".gif":
                 content_type = "image/gif"
-                
-            with open(filepath, "rb") as f:
-                return web.Response(body=f.read(), content_type=content_type)
+
+            response = web.FileResponse(filepath)
+            response.content_type = content_type
+            response.headers["Cache-Control"] = "public, max-age=3600"
+            response.headers["X-Accel-Buffering"] = "no"
+            return response
+        except Exception:
+            return web.Response(status=500)
+
+    @PromptServer.instance.routes.get("/jdsc/assets/thumb")
+    async def get_asset_thumb(request):
+        """获取素材缩略图，用于素材库网格预览"""
+        try:
+            category_name = request.query.get("category", "")
+            filename = request.query.get("filename", "")
+
+            if not category_name or not filename:
+                return web.Response(status=404)
+
+            if ".." in filename or "/" in filename or "\\" in filename:
+                return web.Response(status=403)
+
+            config = get_config()
+            target_path = None
+            for d in config.get("directories", []):
+                if d.get("name") == category_name:
+                    target_path = d.get("path")
+                    break
+
+            if not target_path or not os.path.exists(target_path):
+                return web.Response(status=404)
+
+            filepath = os.path.join(target_path, filename)
+            if not os.path.exists(filepath):
+                return web.Response(status=404)
+
+            try:
+                thumb_path = build_asset_thumbnail(filepath)
+                response = web.FileResponse(thumb_path)
+                response.content_type = "image/png"
+                response.headers["Cache-Control"] = "public, max-age=86400"
+                return response
+            except Exception:
+                response = web.FileResponse(filepath)
+                response.headers["Cache-Control"] = "public, max-age=3600"
+                return response
         except Exception:
             return web.Response(status=500)
 
@@ -146,6 +261,7 @@ def register_routes():
             filepath = os.path.join(target_path, filename)
             if os.path.exists(filepath):
                 os.remove(filepath)
+                clear_asset_list_cache()
                 return web.json_response({"success": True})
             else:
                 return web.json_response({"success": False, "error": "File not found"})
@@ -198,6 +314,7 @@ def register_routes():
                 os.rename(source_filepath, target_filepath)
             except OSError:
                 shutil.move(source_filepath, target_filepath)
+            clear_asset_list_cache()
                 
             return web.json_response({"success": True})
         except Exception as e:
@@ -320,6 +437,7 @@ def register_routes():
             except OSError:
                 # 防御性编程：跨盘或不支持硬链接的环境降级为复制
                 shutil.copy2(source_filepath, target_filepath)
+            clear_asset_list_cache()
             
             return web.json_response({"success": True})
         except Exception as e:
@@ -364,6 +482,7 @@ def register_routes():
                 
                 with open(target_filepath, "wb") as f:
                     f.write(base64.b64decode(encoded))
+                clear_asset_list_cache()
                 return web.json_response({"success": True, "saved_as": target_filename})
                 
             # 解析 ComfyUI 本地路由 (e.g. /view?filename=x.png&type=output&subfolder=y) 或 JDSC 自有路由
@@ -405,6 +524,7 @@ def register_routes():
             except OSError:
                 # 防御性编程：跨盘不支持硬链接时降级为复制，确保“继续显示”不被破坏
                 shutil.copy2(source_filepath, target_filepath)
+            clear_asset_list_cache()
             
             return web.json_response({"success": True})
         except Exception as e:

@@ -204,12 +204,18 @@ class WuhuoMultiPreview:
                         
                         modified = False
                         for n_id, batches in history_data.items():
+                            kept_batches = []
                             for batch in batches:
                                 original_files = batch.get("files", [])
                                 new_files = [img for img in original_files if img not in deleted_filenames]
                                 if len(new_files) != len(original_files):
                                     batch["files"] = new_files
                                     modified = True
+                                if batch.get("files", []):
+                                    kept_batches.append(batch)
+                            if len(kept_batches) != len(batches):
+                                modified = True
+                            history_data[n_id] = kept_batches
                         
                         if modified:
                             with open(HISTORY_MAP_FILE, "w", encoding="utf-8") as f:
@@ -279,9 +285,23 @@ def register_routes():
                     history_data = json.load(f)
                 
                 if node_id in history_data:
+                    files_to_delete = []
+                    for batch in history_data.get(node_id, []):
+                        files_to_delete.extend(batch.get("files", []))
+
                     del history_data[node_id]
                     with open(HISTORY_MAP_FILE, "w", encoding="utf-8") as f:
                         json.dump(history_data, f, ensure_ascii=False, indent=2)
+
+                    for filename in files_to_delete:
+                        try:
+                            if ".." in filename or "/" in filename or "\\" in filename:
+                                continue
+                            filepath = os.path.join(HISTORY_DIR, filename)
+                            if os.path.exists(filepath):
+                                os.remove(filepath)
+                        except Exception:
+                            pass
             
             return web.json_response({"success": True})
         except Exception as e:
@@ -335,10 +355,16 @@ def register_routes():
                         
                     if node_id in history_data:
                         modified = False
+                        kept_batches = []
                         for batch in history_data[node_id]:
                             if filename in batch.get("files", []):
                                 batch["files"].remove(filename)
                                 modified = True
+                            if batch.get("files", []):
+                                kept_batches.append(batch)
+                        if len(kept_batches) != len(history_data[node_id]):
+                            modified = True
+                        history_data[node_id] = kept_batches
                         
                         if modified:
                             with open(HISTORY_MAP_FILE, "w", encoding="utf-8") as f:

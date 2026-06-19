@@ -1,4 +1,4 @@
-# Copyright (c) 2024-2026 icefox21
+﻿# Copyright (c) 2024-2026 icefox21
 # This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
 # Project Link: https://github.com/icefox21/whtools
 
@@ -6,6 +6,15 @@ import os
 import asyncio
 
 CATEGORY = "wuhuo"
+
+try:
+    from .switch_any import WuhuoSwitchAny, WuhuoSelectorAny
+    from .simple_math import WuhuoSimpleMath
+except Exception as e:
+    WuhuoSwitchAny = None
+    WuhuoSelectorAny = None
+    WuhuoSimpleMath = None
+    print(f"[whtools] 鍩虹鑺傜偣妯″潡鍔犺浇澶辫触: {e}")
 
 class jdsc:
     @classmethod
@@ -21,7 +30,7 @@ class jdsc:
         return ()
 
 NODE_CLASS_MAPPINGS = {"jdsc": jdsc}
-NODE_DISPLAY_NAME_MAPPINGS = {"jdsc": "收藏+"}
+NODE_DISPLAY_NAME_MAPPINGS = {"jdsc": "鏀惰棌+"}
 
 WEB_DIRECTORY = os.path.join(os.path.dirname(__file__), "web")
 DATA_DIRECTORY = os.path.join(os.path.dirname(__file__), "data")
@@ -33,9 +42,9 @@ ENHANCE_PRESETS_FILE = os.path.join(DATA_DIRECTORY, "enhance_presets.json")
 
 ENHANCE_PRESETS_TXT = os.path.join(DATA_DIRECTORY, "enhance_presets.txt")
 
-# 加载强化词预设
+# 鍔犺浇寮哄寲璇嶉璁?
 def _load_enhance_presets():
-    # 优先加载 TXT 格式（方便用户编辑）
+    # 浼樺厛鍔犺浇 TXT 鏍煎紡锛堟柟渚跨敤鎴风紪杈戯級
     if os.path.exists(ENHANCE_PRESETS_TXT):
         try:
             presets = {}
@@ -49,18 +58,18 @@ def _load_enhance_presets():
                         continue
                         
                     if line.startswith("[") and line.endswith("]"):
-                        # 保存上一个
+                        # 淇濆瓨涓婁竴涓?
                         if current_key:
                             presets[current_key] = ", ".join(current_lines)
                         
-                        # 开始新的
+                        # 寮€濮嬫柊鐨?
                         current_key = line[1:-1].strip()
                         current_lines = []
                     else:
                         if current_key is not None:
                             current_lines.append(line)
                             
-                # 保存最后一个
+                # 淇濆瓨鏈€鍚庝竴涓?
                 if current_key:
                     presets[current_key] = ", ".join(current_lines)
             
@@ -72,7 +81,7 @@ def _load_enhance_presets():
         except Exception as e:
             print(f"[whtools] Error loading enhance_presets.txt: {e}")
 
-    # 降级加载 JSON 格式
+    # 闄嶇骇鍔犺浇 JSON 鏍煎紡
     try:
         if os.path.exists(ENHANCE_PRESETS_FILE):
             with open(ENHANCE_PRESETS_FILE, "r", encoding="utf-8") as f:
@@ -84,25 +93,25 @@ def _load_enhance_presets():
     return {"无": ""}
 try:
     import sys
-    # 修复模块冲突：如果 comfy.utils 被错误地加载为顶层 utils 模块，会导致 server 导入失败
-    # 步骤1：清理 sys.modules 中错误的 utils 模块
+    # 淇妯″潡鍐茬獊锛氬鏋?comfy.utils 琚敊璇湴鍔犺浇涓洪《灞?utils 妯″潡锛屼細瀵艰嚧 server 瀵煎叆澶辫触
+    # 姝ラ1锛氭竻鐞?sys.modules 涓敊璇殑 utils 妯″潡
     if 'utils' in sys.modules:
         try:
             m = sys.modules['utils']
             if hasattr(m, '__file__') and m.__file__ and 'comfy' in m.__file__.replace('\\', '/').lower():
                 if 'utils.py' in m.__file__.lower() or m.__file__.lower().endswith('utils'):
-                    print(f"[whtools] 检测到错误的 utils 模块 ({m.__file__})，正在修复...")
+                    print(f"[whtools] 妫€娴嬪埌閿欒鐨?utils 妯″潡 ({m.__file__})锛屾鍦ㄤ慨澶?..")
                     del sys.modules['utils']
         except Exception:
             pass
     
-    # 步骤2：清理 sys.path 中指向 comfy 子目录的错误路径
-    # 这防止 server 导入时再次加载错误的 utils
+    # 姝ラ2锛氭竻鐞?sys.path 涓寚鍚?comfy 瀛愮洰褰曠殑閿欒璺緞
+    # 杩欓槻姝?server 瀵煎叆鏃跺啀娆″姞杞介敊璇殑 utils
     paths_to_remove = []
     for p in sys.path:
         try:
             normalized = p.replace('\\', '/').rstrip('/')
-            # 只移除以 /comfy 结尾且不在 custom_nodes 中的路径
+            # 鍙Щ闄や互 /comfy 缁撳熬涓斾笉鍦?custom_nodes 涓殑璺緞
             if normalized.lower().endswith('/comfy') and 'custom_nodes' not in normalized.lower():
                 paths_to_remove.append(p)
         except Exception:
@@ -110,14 +119,13 @@ try:
     for p in paths_to_remove:
         try:
             sys.path.remove(p)
-            print(f"[whtools] 已从 sys.path 移除错误路径: {p}")
+            print(f"[whtools] 宸蹭粠 sys.path 绉婚櫎閿欒璺緞: {p}")
         except Exception:
             pass
 
     from server import PromptServer
     from aiohttp import web
     import json
-    from .switch_any import WuhuoSwitchAny, WuhuoSelectorAny
 
 except Exception as e:
     import traceback
@@ -154,7 +162,7 @@ def _ensure_data():
 _ensure_data()
 
 if PromptServer is not None and web is not None:
-    # 写入 JSON 文件（带容错）
+    # 鍐欏叆 JSON 鏂囦欢锛堝甫瀹归敊锛?
     def _write_json(path, data):
         try:
             with open(path, "w", encoding="utf-8") as f:
@@ -307,10 +315,10 @@ class WuhuoTextGate:
         
         # Prepare user input (prefix) - combine key_word and enhance_mode
         user_prefix = ""
-        # 先添加 key_word
+        # 鍏堟坊鍔?key_word
         if key_word and isinstance(key_word, str) and key_word.strip():
             user_prefix = key_word.strip()
-        # 再添加 enhance_mode 对应的提示词 (支持多个，逗号分隔)
+        # 鍐嶆坊鍔?enhance_mode 瀵瑰簲鐨勬彁绀鸿瘝 (鏀寔澶氫釜锛岄€楀彿鍒嗛殧)
         if enhance_mode and isinstance(enhance_mode, str) and enhance_mode.strip() and enhance_mode != "无":
             presets = _load_enhance_presets()
             enhance_parts = [p.strip() for p in enhance_mode.split(",") if p.strip()]
@@ -331,28 +339,28 @@ class WuhuoTextGate:
         import random
         import json
         
-        # 处理随机 SFW 抽取逻辑
+        # 澶勭悊闅忔満 SFW 鎶藉彇閫昏緫
         if random_sfw:
             sfw_text = ""
             chosen_name = ""
             try:
-                # 直接获取收藏文件路径
+                # 鐩存帴鑾峰彇鏀惰棌鏂囦欢璺緞
                 favs_path = os.path.join(DATA_DIRECTORY, "text_favorites.json")
                 if os.path.exists(favs_path):
                     with open(favs_path, "r", encoding="utf-8") as f:
                         favs_data = json.load(f)
-                    # 筛选分类为 SFW 的提示词
+                    # 绛涢€夊垎绫讳负 SFW 鐨勬彁绀鸿瘝
                     sfw_items = [(k, v["content"]) for k, v in favs_data.items() if isinstance(v, dict) and v.get("category") == "SFW" and v.get("content")]
                     if sfw_items:
                         chosen_name, sfw_text = random.choice(sfw_items)
             except Exception as e:
-                print(f"[whtools] 随机抽取SFW失败: {e}")
+                print(f"[whtools] 闅忔満鎶藉彇SFW澶辫触: {e}")
             
             final_out = sfw_text
             if user_prefix:
                 final_out = (user_prefix + "," + final_out) if final_out else user_prefix
             
-            # 告诉前端保持继续状态，并更新提示词框内容
+            # 鍛婅瘔鍓嶇淇濇寔缁х画鐘舵€侊紝骞舵洿鏂版彁绀鸿瘝妗嗗唴瀹?
             try:
                 if PromptServer is not None:
                     PromptServer.instance.send_sync("jdsc.textgate.update_text", {"node": node_id, "text": sfw_text, "name": chosen_name})
@@ -363,9 +371,9 @@ class WuhuoTextGate:
             return (final_out,)
 
         if free_pass:
-            # Free pass mode - 直通模式
-            # 上游有输入 → 传递上游内容
-            # 上游无输入 → 使用 enhance_mode + edit_text
+            # Free pass mode - 鐩撮€氭ā寮?
+            # 涓婃父鏈夎緭鍏?鈫?浼犻€掍笂娓稿唴瀹?
+            # 涓婃父鏃犺緭鍏?鈫?浣跨敤 enhance_mode + edit_text
             try:
                 if PromptServer is not None:
                     PromptServer.instance.send_sync("jdsc.textgate.status", {"node": node_id, "passing": True, "received": received, "manual": False, "free": bool(free_pass), "edit": bool(enable_edit)})
@@ -373,12 +381,12 @@ class WuhuoTextGate:
                 pass
             
             if received:
-                # 上游有输入，传递上游内容
+                # 涓婃父鏈夎緭鍏ワ紝浼犻€掍笂娓稿唴瀹?
                 final_out = in_text
                 if user_prefix:
                     final_out = (user_prefix + "," + final_out) if final_out else user_prefix
             else:
-                # 上游无输入，使用 manual_input + edit_text
+                # 涓婃父鏃犺緭鍏ワ紝浣跨敤 manual_input + edit_text
                 final_out = ""
                 if user_prefix:
                     final_out = user_prefix
@@ -438,16 +446,16 @@ class WuhuoTextGate:
             out = (user_prefix + "," + out) if out else user_prefix
         
         manual_pass = bool(out)
-        # 将节点的运行状态持久化到 jdsc/nodes.json，确保即使重启也能保留记录（对新手友好）
+        # 灏嗚妭鐐圭殑杩愯鐘舵€佹寔涔呭寲鍒?jdsc/nodes.json锛岀‘淇濆嵆浣块噸鍚篃鑳戒繚鐣欒褰曪紙瀵规柊鎵嬪弸濂斤級
         try:
-            # 读取已有状态
+            # 璇诲彇宸叉湁鐘舵€?
             try:
                 import json
                 with open(NODES_FILE, "r", encoding="utf-8") as f:
                     nodes_data = json.load(f)
             except Exception:
                 nodes_data = {}
-            # 更新当前节点状态
+            # 鏇存柊褰撳墠鑺傜偣鐘舵€?
             nodes_data[str(node_id or "")] = {
                 "type": "WuhuoTextGate",
                 "enable_edit": bool(enable_edit),
@@ -457,7 +465,7 @@ class WuhuoTextGate:
                 "captured_text": self._captured_text or "",
                 "last_in_text": in_text or "",
             }
-            # 写回文件
+            # 鍐欏洖鏂囦欢
             with open(NODES_FILE, "w", encoding="utf-8") as f:
                 json.dump(nodes_data, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -490,7 +498,7 @@ class WuhuoIgnoreGroup:
     CATEGORY = CATEGORY
 
     def run(self, enable, node_id=None):
-        # 持久化忽略选择框的启用状态
+        # 鎸佷箙鍖栧拷鐣ラ€夋嫨妗嗙殑鍚敤鐘舵€?
         try:
             import json
             try:
@@ -509,20 +517,20 @@ class WuhuoIgnoreGroup:
         return ()
 
 NODE_CLASS_MAPPINGS.update({"WuhuoTextGate": WuhuoTextGate})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGate": "📝文本+"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGate": "馃摑鏂囨湰+"})
 NODE_CLASS_MAPPINGS.update({"WuhuoTextGatePro": WuhuoTextGatePro})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGatePro": "📝文本++"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGatePro": "馃摑鏂囨湰++"})
 NODE_CLASS_MAPPINGS.update({"WuhuoIgnoreGroup": WuhuoIgnoreGroup})
 NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoIgnoreGroup": "忽略选择框"})
 NODE_CLASS_MAPPINGS.pop("WuhuoEcho", None)
 NODE_DISPLAY_NAME_MAPPINGS.pop("WuhuoEcho", None)
 
-# 新增节点：空Latent视频（混元）
-# 说明：
-# - 只输出一个 LATENT（空的潜空间张量），不依赖任何输入
-# - 支持常见比例（4:3 / 5:4 / 16:9 / 16:10）与横屏/竖屏选择；也可自定义宽高
-# - 输入视频时长（秒），自动换算为帧数：frames = a*16 + 1
-# - 为了兼容 VAE/UNet 的空间下采样，宽高会自动对齐到 8 的倍数
+# 鏂板鑺傜偣锛氱┖Latent瑙嗛锛堟贩鍏冿級
+# 璇存槑锛?
+# - 鍙緭鍑轰竴涓?LATENT锛堢┖鐨勬綔绌洪棿寮犻噺锛夛紝涓嶄緷璧栦换浣曡緭鍏?
+# - 鏀寔甯歌姣斾緥锛?:3 / 5:4 / 16:9 / 16:10锛変笌妯睆/绔栧睆閫夋嫨锛涗篃鍙嚜瀹氫箟瀹介珮
+# - 杈撳叆瑙嗛鏃堕暱锛堢锛夛紝鑷姩鎹㈢畻涓哄抚鏁帮細frames = a*16 + 1
+# - 涓轰簡鍏煎 VAE/UNet 鐨勭┖闂翠笅閲囨牱锛屽楂樹細鑷姩瀵归綈鍒?8 鐨勫€嶆暟
 class WuhuoEmptyLatentVideo:
     @classmethod
     def _load_last(cls):
@@ -570,14 +578,14 @@ class WuhuoEmptyLatentVideo:
         d_seconds = int(last.get("seconds", 5))
         return {
             "required": {
-                # 尺寸模式：固定比例或自定义（下拉，含横/竖两向）
+                # 灏哄妯″紡锛氬浐瀹氭瘮渚嬫垨鑷畾涔夛紙涓嬫媺锛屽惈妯?绔栦袱鍚戯級
                 "size_mode": (["4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "16:10", "10:16", "custom"], {"default": d_mode}),
-                # 屏幕方向：横屏/竖屏（下拉）；切换后使用翻转比例（如 5:4 → 4:5）
+                # 灞忓箷鏂瑰悜锛氭í灞?绔栧睆锛堜笅鎷夛級锛涘垏鎹㈠悗浣跨敤缈昏浆姣斾緥锛堝 5:4 鈫?4:5锛?
                 "orientation": (["横屏", "竖屏"], {"default": d_ori}),
-                # 宽高：在固定比例下会自动联动；在自定义模式下按用户值使用
+                # 瀹介珮锛氬湪鍥哄畾姣斾緥涓嬩細鑷姩鑱斿姩锛涘湪鑷畾涔夋ā寮忎笅鎸夌敤鎴峰€间娇鐢?
                 "width": ("INT", {"default": d_w, "min": 64, "max": 8192}),
                 "height": ("INT", {"default": d_h, "min": 64, "max": 8192}),
-                # 直接输入秒数（按合并视频 fps=16 与当前链路 R=4,O=3 公式换算）
+                # 鐩存帴杈撳叆绉掓暟锛堟寜鍚堝苟瑙嗛 fps=16 涓庡綋鍓嶉摼璺?R=4,O=3 鍏紡鎹㈢畻锛?
                 "seconds": ("INT", {"default": d_seconds, "min": 0, "max": 3600}),
             },
             "optional": {},
@@ -592,7 +600,7 @@ class WuhuoEmptyLatentVideo:
     CATEGORY = CATEGORY
 
     def _ratio_from_mode(self, mode):
-        # 直接从 size_mode 文本解析比例，例如 "16:9" 或 "9:16"
+        # 鐩存帴浠?size_mode 鏂囨湰瑙ｆ瀽姣斾緥锛屼緥濡?"16:9" 鎴?"9:16"
         try:
             if mode == "custom":
                 return (1,1)
@@ -604,7 +612,7 @@ class WuhuoEmptyLatentVideo:
         return (1,1)
 
     def _align8(self, x):
-        # 对齐到 8 的倍数，避免下游模型报错
+        # 瀵归綈鍒?8 鐨勫€嶆暟锛岄伩鍏嶄笅娓告ā鍨嬫姤閿?
         try:
             x = int(x)
             if x < 8:
@@ -614,18 +622,18 @@ class WuhuoEmptyLatentVideo:
             return 8
 
     def _calc_size(self, size_mode, orientation, width_in, height_in):
-        # 根据模式计算最终的宽高（像素），并做 8 对齐
+        # 鏍规嵁妯″紡璁＄畻鏈€缁堢殑瀹介珮锛堝儚绱狅級锛屽苟鍋?8 瀵归綈
         if size_mode == "custom":
             w = self._align8(width_in)
             h = self._align8(height_in)
             return w, h
         rw, rh = self._ratio_from_mode(size_mode)
-        # 计算两种联动候选：
+        # 璁＄畻涓ょ鑱斿姩鍊欓€夛細
         w1 = self._align8(width_in)
         h1 = self._align8(round(w1 * rh / rw))
         h2 = self._align8(height_in)
         w2 = self._align8(round(h2 * rw / rh))
-        # 选择更接近用户输入的一组（尽量贴近“你更改的那一边”）
+        # 閫夋嫨鏇存帴杩戠敤鎴疯緭鍏ョ殑涓€缁勶紙灏介噺璐磋繎鈥滀綘鏇存敼鐨勯偅涓€杈光€濓級
         d1 = abs(h1 - self._align8(height_in))
         d2 = abs(w2 - self._align8(width_in))
         if d1 <= d2:
@@ -634,8 +642,8 @@ class WuhuoEmptyLatentVideo:
             return w2, h2
 
     def _frames_from_seconds(self, seconds_in):
-        # 根据秒数换算 frames：frames ≈ (seconds * fps + O) / R，取整
-        # 当前链路经验：fps=16，R=4，O=3
+        # 鏍规嵁绉掓暟鎹㈢畻 frames锛歠rames 鈮?(seconds * fps + O) / R锛屽彇鏁?
+        # 褰撳墠閾捐矾缁忛獙锛歠ps=16锛孯=4锛孫=3
         try:
             s = int(seconds_in)
             fps = 16
@@ -647,11 +655,11 @@ class WuhuoEmptyLatentVideo:
             return 1
 
     def run(self, size_mode, orientation, width, height, seconds, node_id=None):
-        # 计算宽高与帧数
+        # 璁＄畻瀹介珮涓庡抚鏁?
         w, h = self._calc_size(size_mode, orientation, width, height)
         frames = self._frames_from_seconds(seconds)
 
-        # 生成空 latent：形状为 [frames, 4, h//8, w//8]
+        # 鐢熸垚绌?latent锛氬舰鐘朵负 [frames, 4, h//8, w//8]
         try:
             import torch
             try:
@@ -659,34 +667,34 @@ class WuhuoEmptyLatentVideo:
                 device = get_torch_device()
             except Exception:
                 device = torch.device("cpu")
-            # 输出为5维视频latent：[B=1, C=16, T=frames, H//8, W//8]
+            # 杈撳嚭涓?缁磋棰憀atent锛歔B=1, C=16, T=frames, H//8, W//8]
             latent = torch.zeros((1, 16, frames, h // 8, w // 8), dtype=torch.float32, device=device)
-            # 前端联动展示：根据 orientation 翻转显示比例文本
+            # 鍓嶇鑱斿姩灞曠ず锛氭牴鎹?orientation 缈昏浆鏄剧ず姣斾緥鏂囨湰
             try:
                 from server import PromptServer
                 if PromptServer is not None:
                     PromptServer.instance.send_sync("jdsc.emptylatent.update", {"node": node_id, "size_mode": size_mode, "orientation": orientation, "width": int(w), "height": int(h), "frames": int(frames), "seconds": int(seconds)})
-                # 记忆当前参数到 settings.json
+                # 璁板繂褰撳墠鍙傛暟鍒?settings.json
                 self._save_last({"size_mode": size_mode, "orientation": orientation, "width": int(w), "height": int(h), "seconds": int(seconds)})
             except Exception:
                 pass
             return ({"samples": latent},)
         except Exception:
-            # 兜底：返回 CPU 张量，避免因设备问题导致节点不可用
+            # 鍏滃簳锛氳繑鍥?CPU 寮犻噺锛岄伩鍏嶅洜璁惧闂瀵艰嚧鑺傜偣涓嶅彲鐢?
             try:
                 import torch
-                # CPU 兜底：同样输出5维
+                # CPU 鍏滃簳锛氬悓鏍疯緭鍑?缁?
                 latent = torch.zeros((1, 16, frames, h // 8, w // 8), dtype=torch.float32)
                 return ({"samples": latent},)
             except Exception:
-                # 极端情况：无法导入 torch，则返回空结构（下游可能会报错）
+                # 鏋佺鎯呭喌锛氭棤娉曞鍏?torch锛屽垯杩斿洖绌虹粨鏋勶紙涓嬫父鍙兘浼氭姤閿欙級
                 return ({"samples": None},)
 
 
-# 新增节点：空Latent Qwen（文生图/Flux等）
-# 说明：
-# - 类似空Latent视频，但最后一项改为 batch_size
-# - 输出形状：[batch_size, 4, h//8, w//8]
+# 鏂板鑺傜偣锛氱┖Latent Qwen锛堟枃鐢熷浘/Flux绛夛級
+# 璇存槑锛?
+# - 绫讳技绌篖atent瑙嗛锛屼絾鏈€鍚庝竴椤规敼涓?batch_size
+# - 杈撳嚭褰㈢姸锛歔batch_size, 4, h//8, w//8]
 class WuhuoEmptyLatentQwen:
     @classmethod
     def _load_last(cls):
@@ -830,30 +838,36 @@ class WuhuoEmptyLatentQwen:
                 return ({"samples": None},)
 
 
-# 注册新节点
+# 娉ㄥ唽鏂拌妭鐐?
 NODE_CLASS_MAPPINGS.update({"WuhuoEmptyLatentVideo": WuhuoEmptyLatentVideo})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoEmptyLatentVideo": "空latent+"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoEmptyLatentVideo": "空Latent+"})
 NODE_CLASS_MAPPINGS.update({"WuhuoEmptyLatentQwen": WuhuoEmptyLatentQwen})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoEmptyLatentQwen": "空latent+Qwen"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoEmptyLatentQwen": "空Latent+Qwen"})
 
-NODE_CLASS_MAPPINGS.update({"WuhuoSwitchAny": WuhuoSwitchAny})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoSwitchAny": "任意切换 (布尔)"})
+if WuhuoSwitchAny is not None:
+    NODE_CLASS_MAPPINGS.update({"WuhuoSwitchAny": WuhuoSwitchAny})
+    NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoSwitchAny": "任意切换 (布尔)"})
 
-NODE_CLASS_MAPPINGS.update({"WuhuoSelectorAny": WuhuoSelectorAny})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoSelectorAny": "任意选择 (多路)"})
+if WuhuoSelectorAny is not None:
+    NODE_CLASS_MAPPINGS.update({"WuhuoSelectorAny": WuhuoSelectorAny})
+    NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoSelectorAny": "任意选择 (多路)"})
+
+if WuhuoSimpleMath is not None:
+    NODE_CLASS_MAPPINGS.update({"WuhuoSimpleMath": WuhuoSimpleMath})
+    NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoSimpleMath": "简易运算 (Wuhuo)"})
 
 # ============================================================
-# 工作流管理功能（新增，不影响现有节点）
+# 宸ヤ綔娴佺鐞嗗姛鑳斤紙鏂板锛屼笉褰卞搷鐜版湁鑺傜偣锛?
 # ============================================================
 
-# 工作流文件夹配置文件路径
+# 宸ヤ綔娴佹枃浠跺す閰嶇疆鏂囦欢璺緞
 WF_FOLDERS_FILE = os.path.join(DATA_DIRECTORY, "workflow_folders.json")
-# 工作流收藏配置文件路径
+# 宸ヤ綔娴佹敹钘忛厤缃枃浠惰矾寰?
 WF_FAVS_FILE = os.path.join(DATA_DIRECTORY, "workflow_favorites.json")
-# 工作流历史记录配置文件路径
+# 宸ヤ綔娴佸巻鍙茶褰曢厤缃枃浠惰矾寰?
 WF_HISTORY_FILE = os.path.join(DATA_DIRECTORY, "workflow_history.json")
 
-# 确保工作流相关数据文件存在
+# 纭繚宸ヤ綔娴佺浉鍏虫暟鎹枃浠跺瓨鍦?
 def _ensure_workflow_data():
     try:
         os.makedirs(DATA_DIRECTORY, exist_ok=True)
@@ -871,9 +885,89 @@ def _ensure_workflow_data():
 
 _ensure_workflow_data()
 
-# 工作流管理的后端路由（仅在PromptServer可用时添加）
+def _get_comfy_root():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(current_dir))
+
+def _resolve_workflow_path(path):
+    if not path:
+        return ""
+    path = os.path.expanduser(str(path))
+    if not os.path.isabs(path):
+        path = os.path.join(_get_comfy_root(), path)
+    return os.path.realpath(os.path.abspath(path))
+
+def _get_allowed_workflow_dirs():
+    allowed = [_resolve_workflow_path("user/default/workflows")]
+    try:
+        with open(WF_FOLDERS_FILE, "r", encoding="utf-8") as f:
+            folders = json.load(f)
+        if isinstance(folders, list):
+            for folder in folders:
+                if not isinstance(folder, dict):
+                    continue
+                p = folder.get("path")
+                if p:
+                    allowed.append(_resolve_workflow_path(p))
+    except Exception:
+        pass
+
+    unique = []
+    seen = set()
+    for p in allowed:
+        key = os.path.normcase(p)
+        if p and key not in seen:
+            seen.add(key)
+            unique.append(p)
+    return unique
+
+def _path_is_inside(path, parent):
+    try:
+        return os.path.commonpath([os.path.normcase(path), os.path.normcase(parent)]) == os.path.normcase(parent)
+    except Exception:
+        return False
+
+def _validate_workflow_file_path(file_path):
+    resolved = _resolve_workflow_path(file_path)
+    if not resolved:
+        return None, "未提供文件路径"
+    if not resolved.lower().endswith(".json"):
+        return None, "鍙兘鎿嶄綔.json鏂囦欢"
+    if not any(_path_is_inside(resolved, d) for d in _get_allowed_workflow_dirs()):
+        return None, "璺緞涓嶅湪宸ヤ綔娴?鍏佽鐨勭洰褰曚腑"
+    return resolved, None
+
+def _validate_workflow_folder_path(folder_path):
+    resolved = _resolve_workflow_path(folder_path)
+    if not resolved:
+        return None, "鏈彁渚涙枃浠跺す璺緞"
+    if not any(_path_is_inside(resolved, d) for d in _get_allowed_workflow_dirs()):
+        return None, "璺緞涓嶅湪宸ヤ綔娴?鍏佽鐨勭洰褰曚腑"
+    return resolved, None
+
+def _find_workflow_file_by_basename(file_path):
+    name = os.path.basename(str(file_path or "").replace("\\", os.sep).replace("/", os.sep))
+    if not name:
+        return None
+    target = os.path.normcase(name)
+    for folder in _get_allowed_workflow_dirs():
+        try:
+            if not os.path.isdir(folder):
+                continue
+            direct = os.path.join(folder, name)
+            if os.path.isfile(direct):
+                return os.path.realpath(os.path.abspath(direct))
+            for root, _dirs, files in os.walk(folder):
+                for filename in files:
+                    if os.path.normcase(filename) == target and filename.lower().endswith(".json"):
+                        return os.path.realpath(os.path.abspath(os.path.join(root, filename)))
+        except Exception:
+            continue
+    return None
+
+# 宸ヤ綔娴佺鐞嗙殑鍚庣璺敱锛堜粎鍦≒romptServer鍙敤鏃舵坊鍔狅級
 if PromptServer is not None and web is not None:
-    # 获取文件夹配置
+    # 鑾峰彇鏂囦欢澶归厤缃?
     @PromptServer.instance.routes.get("/jdsc/workflow_folders")
     async def jdsc_get_workflow_folders(request):
         try:
@@ -885,7 +979,7 @@ if PromptServer is not None and web is not None:
             data = []
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
     
-    # 保存文件夹配置
+    # 淇濆瓨鏂囦欢澶归厤缃?
     @PromptServer.instance.routes.post("/jdsc/workflow_folders_save")
     async def jdsc_set_workflow_folders(request):
         try:
@@ -903,7 +997,7 @@ if PromptServer is not None and web is not None:
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
     
-    # 获取指定文件夹下的工作流列表（返回文件夹树结构）
+    # 鑾峰彇鎸囧畾鏂囦欢澶逛笅鐨勫伐浣滄祦鍒楄〃锛堣繑鍥炴枃浠跺す鏍戠粨鏋勶級
     @PromptServer.instance.routes.post("/jdsc/workflow_list")
     async def jdsc_get_workflow_list(request):
         try:
@@ -912,18 +1006,18 @@ if PromptServer is not None and web is not None:
             if not folder_path:
                 return web.json_response({"files": [], "subfolders": []})
             
-            # 处理相对路径：相对于ComfyUI根目录
+            # 澶勭悊鐩稿璺緞锛氱浉瀵逛簬ComfyUI鏍圭洰褰?
             if not os.path.isabs(folder_path):
-                # 获取ComfyUI根目录（__init__.py所在目录的上上级）
+                # 鑾峰彇ComfyUI鏍圭洰褰曪紙__init__.py鎵€鍦ㄧ洰褰曠殑涓婁笂绾э級
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 comfy_root = os.path.dirname(os.path.dirname(current_dir))
                 folder_path = os.path.join(comfy_root, folder_path)
             
-            # 检查文件夹是否存在
+            # 妫€鏌ユ枃浠跺す鏄惁瀛樺湪
             if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
                 return web.json_response({"files": [], "subfolders": []})
             
-            # 获取当前文件夹的.json文件和子文件夹
+            # 鑾峰彇褰撳墠鏂囦欢澶圭殑.json鏂囦欢鍜屽瓙鏂囦欢澶?
             files = []
             subfolders = []
             try:
@@ -936,7 +1030,7 @@ if PromptServer is not None and web is not None:
                             "path": item_path
                         })
                     elif os.path.isdir(item_path):
-                        # 检查子文件夹中是否有.json文件（递归检查）
+                        # 妫€鏌ュ瓙鏂囦欢澶逛腑鏄惁鏈?json鏂囦欢锛堥€掑綊妫€鏌ワ級
                         has_workflows = False
                         for root, dirs, filenames in os.walk(item_path):
                             if any(f.lower().endswith('.json') for f in filenames):
@@ -954,7 +1048,7 @@ if PromptServer is not None and web is not None:
         except Exception as e:
             return web.json_response({"files": [], "subfolders": [], "error": str(e)})
     
-    # 获取工作流收藏
+    # 鑾峰彇宸ヤ綔娴佹敹钘?
     @PromptServer.instance.routes.get("/jdsc/workflow_favorites")
     async def jdsc_get_workflow_favorites(request):
         try:
@@ -966,7 +1060,7 @@ if PromptServer is not None and web is not None:
             data = {}
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
     
-    # 保存工作流收藏
+    # 淇濆瓨宸ヤ綔娴佹敹钘?
     @PromptServer.instance.routes.post("/jdsc/workflow_favorites_save")
     async def jdsc_set_workflow_favorites(request):
         try:
@@ -984,7 +1078,7 @@ if PromptServer is not None and web is not None:
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
-    # 获取工作流历史
+    # 鑾峰彇宸ヤ綔娴佸巻鍙?
     @PromptServer.instance.routes.get("/jdsc/workflow_history")
     async def jdsc_get_workflow_history(request):
         try:
@@ -996,7 +1090,7 @@ if PromptServer is not None and web is not None:
             data = []
         return web.Response(text=json.dumps(data, ensure_ascii=False), content_type='application/json')
     
-    # 保存工作流历史
+    # 淇濆瓨宸ヤ綔娴佸巻鍙?
     @PromptServer.instance.routes.post("/jdsc/workflow_history_save")
     async def jdsc_set_workflow_history(request):
         try:
@@ -1014,7 +1108,7 @@ if PromptServer is not None and web is not None:
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
     
-    # 删除工作流文件
+    # 鍒犻櫎宸ヤ綔娴佹枃浠?
     @PromptServer.instance.routes.post("/jdsc/workflow_delete")
     async def jdsc_delete_workflow(request):
         try:
@@ -1022,21 +1116,25 @@ if PromptServer is not None and web is not None:
             file_path = payload.get("path", "")
             if not file_path:
                 return web.json_response({"success": False, "error": "未提供文件路径"})
+
+            file_path, err = _validate_workflow_file_path(file_path)
+            if err:
+                return web.json_response({"success": False, "error": err})
             
-            # 安全检查：确保文件存在且是.json文件
+            # 瀹夊叏妫€鏌ワ細纭繚鏂囦欢瀛樺湪涓旀槸.json鏂囦欢
             if not os.path.exists(file_path):
                 return web.json_response({"success": False, "error": "文件不存在"})
             
             if not file_path.lower().endswith('.json'):
-                return web.json_response({"success": False, "error": "只能删除.json文件"})
+                return web.json_response({"success": False, "error": "鍙兘鍒犻櫎.json鏂囦欢"})
             
-            # 删除文件
+            # 鍒犻櫎鏂囦欢
             os.remove(file_path)
             return web.json_response({"success": True})
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)})
     
-    # 加载工作流文件内容
+    # 鍔犺浇宸ヤ綔娴佹枃浠跺唴瀹?
     @PromptServer.instance.routes.post("/jdsc/workflow_load")
     async def jdsc_load_workflow(request):
         try:
@@ -1044,26 +1142,39 @@ if PromptServer is not None and web is not None:
             file_path = payload.get("path", "")
             if not file_path:
                 return web.json_response({"content": None, "error": "未提供文件路径"})
+
+            file_path, err = _validate_workflow_file_path(file_path)
+            if err:
+                found = _find_workflow_file_by_basename(payload.get("path", ""))
+                if found:
+                    file_path = found
+                else:
+                    return web.json_response({"content": None, "error": err})
             
-            # 检查文件是否存在
+            # 妫€鏌ユ枃浠舵槸鍚﹀瓨鍦?
             if not os.path.exists(file_path):
-                return web.json_response({"content": None, "error": "文件不存在"})
+                found = _find_workflow_file_by_basename(payload.get("path", ""))
+                if found:
+                    file_path = found
+                else:
+                    return web.json_response({"content": None, "error": "文件不存在"})
             
-            # 读取文件内容
+            # 璇诲彇鏂囦欢鍐呭
             with open(file_path, "r", encoding="utf-8") as f:
                 content = json.load(f)
             
-            return web.json_response({"content": content})
+            return web.json_response({"content": content, "path": file_path})
         except Exception as e:
             return web.json_response({"content": None, "error": str(e)})
     
-    # 保存工作流文件到指定路径
+    # 淇濆瓨宸ヤ綔娴佹枃浠跺埌鎸囧畾璺緞
     @PromptServer.instance.routes.post("/jdsc/workflow_save")
     async def jdsc_save_workflow(request):
         try:
             payload = await request.json()
             file_path = payload.get("path", "")
             content = payload.get("content", "")
+            overwrite = bool(payload.get("overwrite", False))
             
             if not file_path:
                 return web.json_response({"success": False, "error": "未提供文件路径"})
@@ -1071,16 +1182,19 @@ if PromptServer is not None and web is not None:
             if not content:
                 return web.json_response({"success": False, "error": "未提供文件内容"})
             
-            # 安全检查：确保是.json文件
-            if not file_path.lower().endswith('.json'):
-                return web.json_response({"success": False, "error": "只能保存.json文件"})
+            file_path, err = _validate_workflow_file_path(file_path)
+            if err:
+                return web.json_response({"success": False, "error": err})
+
+            if os.path.exists(file_path) and not overwrite:
+                return web.json_response({"success": False, "error": "文件已存在"})
             
-            # 确保目录存在
+            # 纭繚鐩綍瀛樺湪
             dir_path = os.path.dirname(file_path)
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
             
-            # 保存文件
+            # 淇濆瓨鏂囦欢
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             
@@ -1089,7 +1203,7 @@ if PromptServer is not None and web is not None:
             return web.json_response({"success": False, "error": str(e)})
     
     # ============================================================
-    # 文本收藏功能 API (独立扩展支持)
+    # 鏂囨湰鏀惰棌鍔熻兘 API (鐙珛鎵╁睍鏀寔)
     # ============================================================
     TEXT_FAVS_FILE = os.path.join(DATA_DIRECTORY, "text_favorites.json")
 
@@ -1132,7 +1246,7 @@ if PromptServer is not None and web is not None:
         except Exception as e:
             return web.json_response({"ok": False, "error": str(e)}, status=500)
 
-# 工作流管理节点（仅用于注册，实际功能在前端）
+# 宸ヤ綔娴佺鐞嗚妭鐐癸紙浠呯敤浜庢敞鍐岋紝瀹為檯鍔熻兘鍦ㄥ墠绔級
 class WuhuoWorkflowManager:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1146,37 +1260,44 @@ class WuhuoWorkflowManager:
     def run(self):
         return ()
 
-# 注册工作流管理节点
+# 娉ㄥ唽宸ヤ綔娴佺鐞嗚妭鐐?
 NODE_CLASS_MAPPINGS.update({"WuhuoWorkflowManager": WuhuoWorkflowManager})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoWorkflowManager": "工作流+"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoWorkflowManager": "宸ヤ綔娴?"})
 
 # ==========================================================================
-# 多图预览节点（独立模块，如需禁用可删除以下代码块）
+# 澶氬浘棰勮鑺傜偣锛堢嫭绔嬫ā鍧楋紝濡傞渶绂佺敤鍙垹闄や互涓嬩唬鐮佸潡锛?
 # ==========================================================================
 try:
     from . import multi_preview
     NODE_CLASS_MAPPINGS.update(multi_preview.NODE_CLASS_MAPPINGS)
     NODE_DISPLAY_NAME_MAPPINGS.update(multi_preview.NODE_DISPLAY_NAME_MAPPINGS)
-    # 注册 API 路由（供前端调用）
+    # 娉ㄥ唽 API 璺敱锛堜緵鍓嶇璋冪敤锛?
     multi_preview.register_routes()
 except Exception as e:
-    print(f"[whtools] 多图预览模块加载失败: {e}")
+    print(f"[whtools] 澶氬浘棰勮妯″潡鍔犺浇澶辫触: {e}")
+
+try:
+    from . import image_compare
+    NODE_CLASS_MAPPINGS.update(image_compare.NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(image_compare.NODE_DISPLAY_NAME_MAPPINGS)
+except Exception as e:
+    print(f"[whtools] 图像对比模块加载失败: {e}")
 
 try:
     from . import asset_library
-    # 注册极简资产库 API 路由
+    # 娉ㄥ唽鏋佺畝璧勪骇搴?API 璺敱
     asset_library.register_routes()
     NODE_CLASS_MAPPINGS.update(asset_library.NODE_CLASS_MAPPINGS)
     NODE_DISPLAY_NAME_MAPPINGS.update(asset_library.NODE_DISPLAY_NAME_MAPPINGS)
 except Exception as e:
-    print(f"[whtools] 资产素材库模块加载失败: {e}")
+    print(f"[whtools] 璧勪骇绱犳潗搴撴ā鍧楀姞杞藉け璐? {e}")
 
 
 # ==========================================================================
-# WuhuoShowText - 显示文本节点（基于 pysssss 的 ShowText）
+# WuhuoShowText - 鏄剧ず鏂囨湰鑺傜偣锛堝熀浜?pysssss 鐨?ShowText锛?
 # ==========================================================================
 class WuhuoShowText:
-    """显示输入文本并传递输出"""
+    """????????????"""
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -1217,8 +1338,8 @@ class WuhuoShowText:
         return {"ui": {"text": text}, "result": (text,)}
 
 
-NODE_CLASS_MAPPINGS.update({"显示文本": WuhuoShowText})
-NODE_DISPLAY_NAME_MAPPINGS.update({"显示文本": "显示文本"})
+NODE_CLASS_MAPPINGS.update({"鏄剧ず鏂囨湰": WuhuoShowText})
+NODE_DISPLAY_NAME_MAPPINGS.update({"鏄剧ず鏂囨湰": "鏄剧ず鏂囨湰"})
 
 
 # ==========================================================================
