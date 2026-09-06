@@ -4,6 +4,7 @@
 
 import os
 import re
+import tempfile
 import time
 
 import torch
@@ -21,6 +22,180 @@ LORA_PAIR_FORMATS = (
     (".lora_linear_layer.up.weight", ".lora_linear_layer.down.weight", None),
     (".lora_B.default.weight", ".lora_A.default.weight", None),
 )
+
+
+# These profiles drive the shared node's model-specific heuristics. They do not
+# create separate nodes: the merge math remains shared, while layer names are
+# interpreted according to the detected target architecture.
+MODEL_FAMILY_PROFILES = {
+    "z_image": {
+        "display_name": "Z-Image",
+        "block_markers": ("layers", "context_refiner", "noise_refiner", "transformer_blocks"),
+        "attention_markers": ("attention", "attn", "to_q", "to_k", "to_v", "to_out"),
+        "ff_markers": ("feed_forward", "feed-forward", "mlp", "ff"),
+        "adaln_markers": ("adaln", "ada_ln", "ada_norm", "modulation"),
+    },
+    "krea2": {
+        "display_name": "Krea2",
+        "block_markers": ("blocks", "layerwise_blocks", "refiner_blocks", "transformer_blocks"),
+        "attention_markers": ("attn", "attention", "to_q", "to_k", "to_v", "to_out", "wq", "wk", "wv", "wo"),
+        "ff_markers": ("feed_forward", "feed-forward", "mlp", "ff", "gate", "up", "down"),
+        "adaln_markers": ("adaln", "ada_ln", "ada_norm", "modulation"),
+    },
+    "h3": {
+        "display_name": "H3",
+        "block_markers": ("blocks", "transformer_blocks"),
+        "attention_markers": ("attn", "attention", "qkv_proj", "out_proj"),
+        "ff_markers": ("ff", "mlp", "fc1", "fc2"),
+        "adaln_markers": ("adaln", "ada_ln", "ada_norm", "modulation"),
+    },
+    "wan": {
+        "display_name": "Wan",
+        "block_markers": ("blocks", "transformer_blocks"),
+        "attention_markers": ("cross_attn", "self_attn", "attention", "attn"),
+        "ff_markers": ("ff", "feed_forward", "mlp"),
+        "adaln_markers": ("adaln", "ada_ln", "ada_norm", "modulation"),
+    },
+}
+
+
+def _state_keys(state_dict):
+    return [str(key) for key in state_dict.keys()]
+
+
+def _detect_model_family(state_dict):
+    """Infer the target family from adapter targets, never from a filename.
+
+    Z-Image and original Lumina use overlapping ``layers`` namespaces, so Z is
+    only accepted when its structural markers *and* the 3840-dimensional
+    projection fingerprint are present. Krea2 is likewise not inferred from
+    ``blocks`` alone because H3 and Wan also use that root.
+    """
+    keys = [key.lower() for key in _state_keys(state_dict)]
+    pair_specs = _lora_pair_specs(state_dict)
+    bases = [base.lower() for base in pair_specs]
+
+    z_structure = any(
+        marker in base
+        for base in bases
+        for marker in (
+            "context_refiner.",
+            "noise_refiner.",
+            "cap_embedder.",
+            "adaln_modulation",
+            "lora_unet_layers_",
+            "lora_unet_context_refiner_",
+            "lora_unet_noise_refiner_",
+            "diffusion_model.layers.",
+            "transformer.layers.",
+        )
+    )
+    z_dimension_match = False
+    for base, spec in pair_specs.items():
+        up = state_dict.get(spec["up_key"])
+        if not torch.is_tensor(up) or up.dim() < 2:
+            continue
+        base_lower = base.lower()
+        output_dim = int(up.shape[0])
+        if "attention_qkv" in base_lower and output_dim == 3 * 3840:
+            z_dimension_match = True
+            break
+        if output_dim == 3840:
+            z_dimension_match = True
+            break
+    is_z_image = z_structure and z_dimension_match
+
+    is_krea2 = any(
+        "text_fusion." in base
+        or "txtfusion." in base
+        or re.search(r"(?:^|\.)attn\.(?:to_q|to_k|to_v|to_out\.0|to_gate)(?:\.|$)", base)
+        or re.search(r"(?:^|\.)attn\.(?:wq|wk|wv|wo|gate)(?:\.|$)", base)
+        or re.search(r"(?:^|\.)mlp\.(?:gate|up|down)(?:\.|$)", base)
+        for base in bases
+    )
+    is_h3 = any(".attn.qkv_proj" in base or ".attn.out_proj" in base for base in bases)
+    is_wan = any(".cross_attn." in base and "_img" in base for base in bases)
+
+    detected = [
+        family for family, matched in (
+            ("z_image", is_z_image),
+            ("krea2", is_krea2),
+            ("h3", is_h3),
+            ("wan", is_wan),
+        ) if matched
+    ]
+    if len(detected) == 1:
+        return detected[0]
+    if len(detected) > 1:
+        return "mixed"
+    return "generic"
+
+
+UNSAFE_MERGE_ADAPTER_TYPES = {
+    "LoKr": ("lokr_",),
+    "LoHa": ("hada_",),
+    "DoRA": (".dora_scale",),
+    "LoCon": (".lora_mid.weight",),
+    "OFT": (".oft_blocks",),
+    "BOFT": (".boft_",),
+    "GLoRA": (".glora_",),
+    "set_weight": (".set_weight",),
+    "reshape": (".reshape_weight",),
+}
+
+
+def _detect_adapter_types(state_dict):
+    """Return adapter encodings present in a state dict.
+
+    ``classic_lora`` and ``additive_diff`` are safe for this node's linear
+    merge path. Factorized/reparameterized adapters are reported separately so
+    the caller can refuse them instead of silently changing their semantics.
+    """
+    keys = _state_keys(state_dict)
+    lowered = [key.lower() for key in keys]
+    types = set()
+    for adapter_type, markers in UNSAFE_MERGE_ADAPTER_TYPES.items():
+        if any(marker.lower() in key for marker in markers for key in lowered):
+            types.add(adapter_type)
+
+    if _lora_pair_specs(state_dict):
+        types.add("classic_lora")
+    if any(key.lower().endswith((".diff", ".diff_b", ".w_norm", ".b_norm")) for key in keys):
+        types.add("additive_diff")
+    return types
+
+
+def _validate_lora_compatibility(state_a, state_b):
+    """Validate that two files can enter the shared classic merge engine."""
+    types_a = _detect_adapter_types(state_a)
+    types_b = _detect_adapter_types(state_b)
+    unsupported = (types_a | types_b) & set(UNSAFE_MERGE_ADAPTER_TYPES)
+    if unsupported:
+        details = ", ".join(sorted(unsupported))
+        raise ValueError(f"Unsupported adapter type(s) for safe merge: {details}.")
+    if not (types_a & {"classic_lora", "additive_diff"}) or not (types_b & {"classic_lora", "additive_diff"}):
+        raise ValueError("No supported classic LoRA or additive diff tensors found in both inputs.")
+
+    family_a = _detect_model_family(state_a)
+    family_b = _detect_model_family(state_b)
+    if "mixed" in (family_a, family_b):
+        raise ValueError("Cannot merge a LoRA with mixed model families.")
+    if family_a == "generic" or family_b == "generic":
+        raise ValueError(
+            "Cannot merge LoRAs with unknown or different model families: "
+            f"{family_a} and {family_b}."
+        )
+    if family_a != family_b:
+        names = f"{MODEL_FAMILY_PROFILES[family_a]['display_name']} and {MODEL_FAMILY_PROFILES[family_b]['display_name']}"
+        raise ValueError(f"Cannot merge LoRAs from different model families: {names}.")
+
+    return {
+        "family": family_a,
+        "family_a": family_a,
+        "family_b": family_b,
+        "adapter_types_a": tuple(sorted(types_a)),
+        "adapter_types_b": tuple(sorted(types_b)),
+    }
 
 
 def _get_lora_files():
@@ -67,11 +242,18 @@ def _parse_weight_list(text):
     return values
 
 
-def _block_index(key):
-    patterns = (
+def _block_index(key, model_family="generic"):
+    patterns = []
+    profile = MODEL_FAMILY_PROFILES.get(model_family)
+    if profile:
+        patterns.extend(
+            rf"{re.escape(marker)}[._](\d+)"
+            for marker in profile["block_markers"]
+        )
+    patterns.extend((
         r"(?:blocks?|layers?|transformer_blocks?|double_blocks?|single_blocks?)[._](\d+)",
         r"(?:blocks?|layers?|transformer_blocks?|double_blocks?|single_blocks?)(\d+)",
-    )
+    ))
     for pattern in patterns:
         match = re.search(pattern, key, re.IGNORECASE)
         if match:
@@ -79,18 +261,22 @@ def _block_index(key):
     return None
 
 
-def _part_multiplier(key, block_weights, attention_weight, ff_weight, adaln_weight):
+def _part_multiplier(key, block_weights, attention_weight, ff_weight, adaln_weight, model_family="generic"):
     key_lower = key.lower()
+    profile = MODEL_FAMILY_PROFILES.get(model_family, {})
+    attention_markers = profile.get("attention_markers", ("attn", "attention", "to_q", "to_k", "to_v", "to_out", "q_proj", "k_proj", "v_proj", "out_proj"))
+    ff_markers = profile.get("ff_markers", ("ff", "feed_forward", "mlp", "fc1", "fc2"))
+    adaln_markers = profile.get("adaln_markers", ("adaln", "ada_ln", "ada_norm", "modulation"))
     weight = 1.0
-    block_id = _block_index(key)
+    block_id = _block_index(key, model_family)
     if block_id is not None and block_id < len(block_weights):
         weight *= block_weights[block_id]
 
-    if any(token in key_lower for token in ("attn", "attention", "to_q", "to_k", "to_v", "to_out", "q_proj", "k_proj", "v_proj", "out_proj")):
+    if any(token in key_lower for token in attention_markers):
         weight *= attention_weight
-    if any(token in key_lower for token in ("ff", "feed_forward", "mlp", "fc1", "fc2")):
+    if any(token in key_lower for token in ff_markers):
         weight *= ff_weight
-    if any(token in key_lower for token in ("adaln", "ada_ln", "ada_norm", "modulation")):
+    if any(token in key_lower for token in adaln_markers):
         weight *= adaln_weight
 
     return weight
@@ -119,12 +305,6 @@ def _scalar_float(value, default):
         return default
 
 
-def _lora_pair_bases(state_dict):
-    down_bases = {key[:-len(DOWN_SUFFIX)] for key in state_dict if key.endswith(DOWN_SUFFIX)}
-    up_bases = {key[:-len(UP_SUFFIX)] for key in state_dict if key.endswith(UP_SUFFIX)}
-    return down_bases & up_bases
-
-
 def _lora_pair_specs(state_dict):
     specs = {}
     for up_suffix, down_suffix, mid_suffix in LORA_PAIR_FORMATS:
@@ -143,6 +323,59 @@ def _lora_pair_specs(state_dict):
                 "alpha_key": base + ALPHA_SUFFIX,
             }
     return specs
+
+
+def _canonical_lora_base(base, model_family):
+    """Normalize only aliases that ComfyUI maps to the same target module."""
+    canonical = str(base)
+    if model_family == "krea2":
+        for prefix in ("diffusion_model.", "transformer."):
+            if canonical.startswith(prefix):
+                canonical = canonical[len(prefix):]
+                break
+        if canonical.startswith("blocks."):
+            canonical = "transformer_" + canonical
+        canonical = canonical.replace("txtfusion.", "text_fusion.")
+        for old, new in (
+            (".attn.wq", ".attn.to_q"),
+            (".attn.wk", ".attn.to_k"),
+            (".attn.wv", ".attn.to_v"),
+            (".attn.gate", ".attn.to_gate"),
+            (".attn.wo", ".attn.to_out.0"),
+            (".mlp.gate", ".ff.gate"),
+            (".mlp.up", ".ff.up"),
+            (".mlp.down", ".ff.down"),
+        ):
+            canonical = canonical.replace(old, new)
+        return "transformer." + canonical
+
+    if model_family in MODEL_FAMILY_PROFILES:
+        for prefix in ("diffusion_model.", "transformer."):
+            if canonical.startswith(prefix):
+                canonical = canonical[len(prefix):]
+                break
+    return canonical
+
+
+def _canonical_lora_pair_specs(state_dict, model_family):
+    canonical_specs = {}
+    for source_base, spec in _lora_pair_specs(state_dict).items():
+        canonical_base = _canonical_lora_base(source_base, model_family)
+        if canonical_base in canonical_specs:
+            other = canonical_specs[canonical_base]["source_base"]
+            raise ValueError(
+                "Input LoRA contains duplicate aliases for the same target: "
+                f"{other} and {source_base} -> {canonical_base}."
+            )
+        canonical_specs[canonical_base] = {**spec, "source_base": source_base}
+    return canonical_specs
+
+
+def _output_pair_suffixes(model_family):
+    if model_family == "krea2":
+        # Krea2 Diffusers/PEFT expects A/B names; ComfyUI supports them too.
+        return ".lora_B.weight", ".lora_A.weight"
+    return UP_SUFFIX, DOWN_SUFFIX
 
 
 def _pair_compatible(down_a, up_a, down_b, up_b):
@@ -223,7 +456,21 @@ def _save_lora(tensors, path, metadata):
     except Exception as exc:
         raise RuntimeError("safetensors is required to save merged LoRA files.") from exc
 
-    save_file(tensors, path, metadata=metadata)
+    destination = os.path.abspath(path)
+    directory = os.path.dirname(destination)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(destination)}.",
+        suffix=".tmp",
+        dir=directory,
+    )
+    os.close(descriptor)
+    try:
+        save_file(tensors, temporary_path, metadata=metadata)
+        os.replace(temporary_path, destination)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
 
 
 TOOLTIPS = {
@@ -241,9 +488,9 @@ TOOLTIPS = {
     "adaln_weight_b": "LoRA B 的调制/归一化相关倍率。只想保脸时不要太高，可先用 0.5。",
     "block_weights_a": "LoRA A 的分层权重。可填一串数字，如 1,1,0.8,0.6；空着表示所有层都用 1。",
     "block_weights_b": "LoRA B 的分层权重。用于细调某些层的影响；看不懂时留空即可。",
-    "merge_strategy": "合并策略。rank_concat 更接近同时加载两个 LoRA；tensor_blend 是旧式张量混合，通常不推荐。",
+    "merge_strategy": "安全合并固定使用 rank_concat：数学上等价于并联加载普通 LoRA。旧 tensor_blend 会直接混合 factor，不能保持原始效果，已禁用。",
     "overlap_mode": "两个 LoRA 命中同一层时怎么处理。add 最像同时加载；weighted_average 更柔和；keep_a/keep_b 只保留一边。",
-    "shape_mode": "遇到不同 rank 或形状时怎么处理。pad_to_larger 会补零对齐，兼容性最好。",
+    "shape_mode": "非 rank 维度不兼容时的处理。默认 reject_mismatch 会拒绝保存；不同底模或不同目标层不能靠补零变得兼容。",
     "include_unique_keys": "是否保留只存在于其中一个 LoRA 的权重。一般保持开启。",
     "save_dtype": "保存精度。fp16 文件小、加载快；fp32 更精确但文件更大；keep 保持原始类型。",
     "output_name": "输出 LoRA 文件名。不写后缀也可以，会自动保存为 .safetensors。",
@@ -278,9 +525,9 @@ class WuhuoLoraMerge:
                 "adaln_weight_b": ("FLOAT", _with_tooltip({"default": 1.0, "min": -5.0, "max": 5.0, "step": 0.05}, "adaln_weight_b")),
                 "block_weights_a": ("STRING", _with_tooltip({"multiline": True, "default": ""}, "block_weights_a")),
                 "block_weights_b": ("STRING", _with_tooltip({"multiline": True, "default": ""}, "block_weights_b")),
-                "merge_strategy": (["rank_concat", "tensor_blend"], _with_tooltip({"default": "rank_concat"}, "merge_strategy")),
+                "merge_strategy": (["rank_concat"], _with_tooltip({"default": "rank_concat"}, "merge_strategy")),
                 "overlap_mode": (["add", "weighted_average", "keep_a", "keep_b"], _with_tooltip({"default": "add"}, "overlap_mode")),
-                "shape_mode": (["pad_to_larger", "keep_a_on_mismatch", "skip_mismatch"], _with_tooltip({"default": "pad_to_larger"}, "shape_mode")),
+                "shape_mode": (["reject_mismatch", "keep_a_on_mismatch", "skip_mismatch"], _with_tooltip({"default": "reject_mismatch"}, "shape_mode")),
                 "include_unique_keys": ("BOOLEAN", _with_tooltip({"default": True}, "include_unique_keys")),
                 "save_dtype": (["fp16", "fp32", "keep"], _with_tooltip({"default": "fp16"}, "save_dtype")),
                 "output_name": ("STRING", _with_tooltip({"default": "whtools_merged_lora"}, "output_name")),
@@ -299,9 +546,16 @@ class WuhuoLoraMerge:
     def IS_CHANGED(cls, **kwargs):
         return time.time()
 
-    def _weight_for_key(self, key, model_weight, clip_weight, block_weights, attention_weight, ff_weight, adaln_weight):
+    def _weight_for_key(self, key, model_weight, clip_weight, block_weights, attention_weight, ff_weight, adaln_weight, model_family="generic"):
         base_weight = clip_weight if _is_clip_key(key) else model_weight
-        return base_weight * _part_multiplier(key, block_weights, attention_weight, ff_weight, adaln_weight)
+        return base_weight * _part_multiplier(
+            key,
+            block_weights,
+            attention_weight,
+            ff_weight,
+            adaln_weight,
+            model_family,
+        )
 
     def _convert_dtype(self, tensor, save_dtype):
         if not torch.is_floating_point(tensor):
@@ -323,13 +577,10 @@ class WuhuoLoraMerge:
                 return None
             if shape_mode == "keep_a_on_mismatch":
                 return tensor_a.detach().cpu().float() * weight_a
-            if tensor_a.dim() != tensor_b.dim():
-                return tensor_a.detach().cpu().float() * weight_a
-            target_shape = [max(tensor_a.shape[i], tensor_b.shape[i]) for i in range(tensor_a.dim())]
-            a = _pad_to_shape(tensor_a, target_shape)
-            b = _pad_to_shape(tensor_b, target_shape)
-            if a is None or b is None:
-                return tensor_a.detach().cpu().float() * weight_a
+            raise ValueError(
+                f"Cannot merge incompatible non-rank tensor shapes for {key}: "
+                f"{tuple(tensor_a.shape)} vs {tuple(tensor_b.shape)}."
+            )
         else:
             a = tensor_a.detach().cpu().float()
             b = tensor_b.detach().cpu().float()
@@ -345,9 +596,25 @@ class WuhuoLoraMerge:
             return (a * weight_a + b * weight_b) / denom
         return a * weight_a + b * weight_b
 
-    def _rank_concat_pair(self, base, sd, model_weight, clip_weight, block_weights, attention_weight, ff_weight, adaln_weight, side_scale=1.0):
-        down_key = base + DOWN_SUFFIX
-        up_key = base + UP_SUFFIX
+    def _rank_concat_pair(
+        self,
+        base,
+        sd,
+        spec,
+        model_weight,
+        clip_weight,
+        block_weights,
+        attention_weight,
+        ff_weight,
+        adaln_weight,
+        side_scale=1.0,
+        model_family="generic",
+    ):
+        if spec.get("mid_key"):
+            return None
+
+        down_key = spec["down_key"]
+        up_key = spec["up_key"]
         down = sd[down_key].detach().cpu().float()
         up = sd[up_key].detach().cpu().float()
 
@@ -358,8 +625,17 @@ class WuhuoLoraMerge:
         if rank <= 0 or int(up.shape[1]) <= 0:
             return None
 
-        alpha = _scalar_float(sd.get(base + ALPHA_SUFFIX), float(rank))
-        weight = self._weight_for_key(base, model_weight, clip_weight, block_weights, attention_weight, ff_weight, adaln_weight)
+        alpha = _scalar_float(sd.get(spec["alpha_key"]), float(rank))
+        weight = self._weight_for_key(
+            base,
+            model_weight,
+            clip_weight,
+            block_weights,
+            attention_weight,
+            ff_weight,
+            adaln_weight,
+            model_family,
+        )
 
         # Set merged alpha to merged rank later. Folding alpha/rank into up preserves
         # the runtime LoRA delta much better than adding raw up/down tensors.
@@ -387,9 +663,13 @@ class WuhuoLoraMerge:
         shape_mode,
         include_unique_keys,
         save_dtype,
+        model_family="generic",
     ):
-        bases_a = _lora_pair_bases(sd_a)
-        bases_b = _lora_pair_bases(sd_b)
+        specs_a = _canonical_lora_pair_specs(sd_a, model_family)
+        specs_b = _canonical_lora_pair_specs(sd_b, model_family)
+        output_up_suffix, output_down_suffix = _output_pair_suffixes(model_family)
+        bases_a = set(specs_a)
+        bases_b = set(specs_b)
         bases = bases_a | bases_b if include_unique_keys else bases_a & bases_b
         processed = set()
         merged = {}
@@ -403,18 +683,28 @@ class WuhuoLoraMerge:
                 continue
 
             if has_a:
-                processed.update({base + DOWN_SUFFIX, base + UP_SUFFIX, base + ALPHA_SUFFIX})
+                processed.update({specs_a[base]["down_key"], specs_a[base]["up_key"], specs_a[base]["alpha_key"]})
+                if specs_a[base].get("mid_key"):
+                    processed.add(specs_a[base]["mid_key"])
             if has_b:
-                processed.update({base + DOWN_SUFFIX, base + UP_SUFFIX, base + ALPHA_SUFFIX})
+                processed.update({specs_b[base]["down_key"], specs_b[base]["up_key"], specs_b[base]["alpha_key"]})
+                if specs_b[base].get("mid_key"):
+                    processed.add(specs_b[base]["mid_key"])
 
             if has_a and has_b:
                 if not _pair_compatible(
-                    sd_a[base + DOWN_SUFFIX],
-                    sd_a[base + UP_SUFFIX],
-                    sd_b[base + DOWN_SUFFIX],
-                    sd_b[base + UP_SUFFIX],
+                    sd_a[specs_a[base]["down_key"]],
+                    sd_a[specs_a[base]["up_key"]],
+                    sd_b[specs_b[base]["down_key"]],
+                    sd_b[specs_b[base]["up_key"]],
                 ):
                     incompatible_pairs += 1
+                    if shape_mode == "reject_mismatch" or shape_mode == "pad_to_larger":
+                        raise ValueError(
+                            f"Cannot rank-concat incompatible non-rank shapes for {base}: "
+                            f"{tuple(sd_a[specs_a[base]['down_key']].shape)} / {tuple(sd_a[specs_a[base]['up_key']].shape)} vs "
+                            f"{tuple(sd_b[specs_b[base]['down_key']].shape)} / {tuple(sd_b[specs_b[base]['up_key']].shape)}."
+                        )
                     if shape_mode == "skip_mismatch":
                         continue
                     has_b = overlap_mode == "keep_b"
@@ -427,22 +717,30 @@ class WuhuoLoraMerge:
             elif has_a and has_b and overlap_mode == "keep_b":
                 has_a = False
             elif has_a and has_b and overlap_mode == "weighted_average":
-                wa = abs(self._weight_for_key(base, model_weight_a, clip_weight_a, block_weights_a, attention_weight_a, ff_weight_a, adaln_weight_a))
-                wb = abs(self._weight_for_key(base, model_weight_b, clip_weight_b, block_weights_b, attention_weight_b, ff_weight_b, adaln_weight_b))
+                wa = abs(self._weight_for_key(base, model_weight_a, clip_weight_a, block_weights_a, attention_weight_a, ff_weight_a, adaln_weight_a, model_family))
+                wb = abs(self._weight_for_key(base, model_weight_b, clip_weight_b, block_weights_b, attention_weight_b, ff_weight_b, adaln_weight_b, model_family))
                 denom = wa + wb
                 if denom > 0:
-                    side_scale_a = wa / denom
-                    side_scale_b = wb / denom
+                    side_scale_a = 1.0 / denom
+                    side_scale_b = 1.0 / denom
 
             parts_down = []
             parts_up = []
             if has_a:
-                pair = self._rank_concat_pair(base, sd_a, model_weight_a, clip_weight_a, block_weights_a, attention_weight_a, ff_weight_a, adaln_weight_a, side_scale_a)
+                pair = self._rank_concat_pair(
+                    base, sd_a, specs_a[base], model_weight_a, clip_weight_a,
+                    block_weights_a, attention_weight_a, ff_weight_a, adaln_weight_a,
+                    side_scale_a, model_family,
+                )
                 if pair is not None:
                     parts_down.append(pair[0])
                     parts_up.append(pair[1])
             if has_b:
-                pair = self._rank_concat_pair(base, sd_b, model_weight_b, clip_weight_b, block_weights_b, attention_weight_b, ff_weight_b, adaln_weight_b, side_scale_b)
+                pair = self._rank_concat_pair(
+                    base, sd_b, specs_b[base], model_weight_b, clip_weight_b,
+                    block_weights_b, attention_weight_b, ff_weight_b, adaln_weight_b,
+                    side_scale_b, model_family,
+                )
                 if pair is not None:
                     parts_down.append(pair[0])
                     parts_up.append(pair[1])
@@ -453,9 +751,8 @@ class WuhuoLoraMerge:
             down = torch.cat(parts_down, dim=0)
             up = torch.cat(parts_up, dim=1)
             total_rank = int(down.shape[0])
-            merged[base + DOWN_SUFFIX] = self._convert_dtype(down, save_dtype)
-            merged[base + UP_SUFFIX] = self._convert_dtype(up, save_dtype)
-            merged[base + ALPHA_SUFFIX] = torch.tensor(float(total_rank), dtype=torch.float32)
+            merged[base + output_down_suffix] = self._convert_dtype(down, save_dtype)
+            merged[base + output_up_suffix] = self._convert_dtype(up, save_dtype)
             exact_pairs += 1
 
         shape_conflicts = incompatible_pairs
@@ -469,8 +766,8 @@ class WuhuoLoraMerge:
             if tensor_a is not None and tensor_b is not None and tuple(tensor_a.shape) != tuple(tensor_b.shape):
                 shape_conflicts += 1
 
-            wa = self._weight_for_key(key, model_weight_a, clip_weight_a, block_weights_a, attention_weight_a, ff_weight_a, adaln_weight_a)
-            wb = self._weight_for_key(key, model_weight_b, clip_weight_b, block_weights_b, attention_weight_b, ff_weight_b, adaln_weight_b)
+            wa = self._weight_for_key(key, model_weight_a, clip_weight_a, block_weights_a, attention_weight_a, ff_weight_a, adaln_weight_a, model_family)
+            wb = self._weight_for_key(key, model_weight_b, clip_weight_b, block_weights_b, attention_weight_b, ff_weight_b, adaln_weight_b, model_family)
             tensor = self._merge_tensor(key, tensor_a, tensor_b, wa, wb, overlap_mode, shape_mode)
             if tensor is None:
                 skipped_mismatch += 1
@@ -513,11 +810,14 @@ class WuhuoLoraMerge:
             raise ValueError("Please select two LoRA files.")
         if lora_a == lora_b:
             raise ValueError("Please select two different LoRA files.")
+        if merge_strategy != "rank_concat":
+            raise ValueError("Only rank_concat is safe for LoRA merging; tensor_blend is not supported.")
 
         path_a = _resolve_lora_path(lora_a)
         path_b = _resolve_lora_path(lora_b)
         sd_a = _load_lora(path_a)
         sd_b = _load_lora(path_b)
+        compatibility = _validate_lora_compatibility(sd_a, sd_b)
 
         out_path, rel_name = _output_path(output_name, output_subfolder)
         if os.path.exists(out_path) and not overwrite:
@@ -550,6 +850,7 @@ class WuhuoLoraMerge:
                 shape_mode,
                 include_unique_keys,
                 save_dtype,
+                compatibility["family"],
             )
         else:
             merged = {}
@@ -563,8 +864,8 @@ class WuhuoLoraMerge:
                 if tensor_a is not None and tensor_b is not None and tuple(tensor_a.shape) != tuple(tensor_b.shape):
                     shape_conflicts += 1
 
-                wa = self._weight_for_key(key, model_weight_a, clip_weight_a, parsed_block_weights_a, attention_weight_a, ff_weight_a, adaln_weight_a)
-                wb = self._weight_for_key(key, model_weight_b, clip_weight_b, parsed_block_weights_b, attention_weight_b, ff_weight_b, adaln_weight_b)
+                wa = self._weight_for_key(key, model_weight_a, clip_weight_a, parsed_block_weights_a, attention_weight_a, ff_weight_a, adaln_weight_a, compatibility["family"])
+                wb = self._weight_for_key(key, model_weight_b, clip_weight_b, parsed_block_weights_b, attention_weight_b, ff_weight_b, adaln_weight_b, compatibility["family"])
                 tensor = self._merge_tensor(key, tensor_a, tensor_b, wa, wb, overlap_mode, shape_mode)
                 if tensor is None:
                     skipped_mismatch += 1
@@ -582,6 +883,7 @@ class WuhuoLoraMerge:
 
         metadata = {
             "whtools": "LoRA merged by WuhuoLoraMerge",
+            "model_family": compatibility["family"],
             "lora_a": str(lora_a),
             "lora_b": str(lora_b),
             "model_weight_a": str(model_weight_a),
@@ -658,7 +960,8 @@ class WuhuoLoraSimpleMerge(WuhuoLoraMerge):
             })
         return selected
 
-    def _merge_simple_states(self, entries, save_dtype):
+    def _merge_simple_states(self, entries, save_dtype, model_family="generic"):
+        output_up_suffix, output_down_suffix = _output_pair_suffixes(model_family)
         spec_sets = [set(entry["pair_specs"].keys()) for entry in entries]
         bases = set().union(*spec_sets) if spec_sets else set()
         merged = {}
@@ -711,15 +1014,52 @@ class WuhuoLoraSimpleMerge(WuhuoLoraMerge):
             down = torch.cat(parts_down, dim=0)
             up = torch.cat(parts_up, dim=1)
             total_rank = int(down.shape[0])
-            merged[base + DOWN_SUFFIX] = self._convert_dtype(down, save_dtype)
-            merged[base + UP_SUFFIX] = self._convert_dtype(up, save_dtype)
-            merged[base + ALPHA_SUFFIX] = torch.tensor(float(total_rank), dtype=torch.float32)
+            merged[base + output_down_suffix] = self._convert_dtype(down, save_dtype)
+            merged[base + output_up_suffix] = self._convert_dtype(up, save_dtype)
             exact_pairs += 1
+
+        # .diff/.diff_b and norm tensors are additive patches in ComfyUI. They
+        # are not part of a LoRA pair, but dropping them changes the adapter's
+        # behavior (notably for distillation and text-side patches).
+        pair_keys = set()
+        for entry in entries:
+            for spec in entry["pair_specs"].values():
+                pair_keys.update({spec["down_key"], spec["up_key"], spec["alpha_key"]})
+                if spec.get("mid_key"):
+                    pair_keys.add(spec["mid_key"])
+        residual_keys = set().union(*(entry["state"].keys() for entry in entries)) - pair_keys
+        additive_keys = sorted(
+            key for key in residual_keys
+            if key.lower().endswith((".diff", ".diff_b", ".w_norm", ".b_norm"))
+        )
+        skipped_diff = 0
+        for key in additive_keys:
+            merged_tensor = None
+            failed = False
+            for entry in entries:
+                tensor = entry["state"].get(key)
+                if tensor is None:
+                    continue
+                tensor = tensor.detach().cpu().float()
+                if merged_tensor is None:
+                    merged_tensor = tensor * float(entry["weight"])
+                elif tuple(merged_tensor.shape) != tuple(tensor.shape):
+                    failed = True
+                    break
+                else:
+                    merged_tensor += tensor * float(entry["weight"])
+            if failed:
+                skipped_diff += 1
+                continue
+            if merged_tensor is not None:
+                merged[key] = self._convert_dtype(merged_tensor, save_dtype)
 
         return merged, {
             "exact_pairs": exact_pairs,
             "shape_conflicts": shape_conflicts,
             "skipped_layers": skipped_layers,
+            "diff_tensors": len(additive_keys) - skipped_diff,
+            "skipped_diff": skipped_diff,
         }
 
     def merge_simple(
@@ -739,23 +1079,30 @@ class WuhuoLoraSimpleMerge(WuhuoLoraMerge):
         if len(selected) < 2:
             raise ValueError("请至少选择两个权重不为 0 的 LoRA。")
 
+        entries = []
+        for item in selected:
+            state = _load_lora(item["path"])
+            entries.append({
+                **item,
+                "state": state,
+                "pair_specs": _lora_pair_specs(state),
+            })
+
+        compatibility = None
+        reference_state = entries[0]["state"]
+        for entry in entries[1:]:
+            compatibility = _validate_lora_compatibility(reference_state, entry["state"])
+            if _detect_model_family(reference_state) == "generic" and compatibility["family"] != "generic":
+                reference_state = entry["state"]
+        family = compatibility["family"] if compatibility is not None else "generic"
+        for entry in entries:
+            entry["pair_specs"] = _canonical_lora_pair_specs(entry["state"], family)
+
         out_path, rel_name = _output_path(output_name, output_subfolder)
         if os.path.exists(out_path) and not overwrite:
             raise FileExistsError(f"Output LoRA already exists: {out_path}")
 
-        entries = []
-        for item in selected:
-            state = _load_lora(item["path"])
-            pair_specs = _lora_pair_specs(state)
-            if not pair_specs:
-                raise ValueError(f"Unsupported LoRA format or no standard LoRA layers found: {item['name']}")
-            entries.append({
-                **item,
-                "state": state,
-                "pair_specs": pair_specs,
-            })
-
-        merged, stats = self._merge_simple_states(entries, save_dtype)
+        merged, stats = self._merge_simple_states(entries, save_dtype, family)
         if not merged:
             raise RuntimeError("没有可合并的 LoRA 权重，请检查选择的 LoRA 文件。")
 

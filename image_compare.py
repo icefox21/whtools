@@ -5,6 +5,8 @@ class WuhuoImageComparer(PreviewImage):
     """Compare two images in the ComfyUI canvas."""
 
     CATEGORY = "wuhuo"
+    RETURN_TYPES = ()
+    OUTPUT_NODE = True
     FUNCTION = "compare_images"
     DESCRIPTION = "Compare two images with a hover slider or click mode."
 

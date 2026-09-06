@@ -25,6 +25,14 @@ function recursiveAddNodes(nodeId, oldOutput, newOutput) {
     return newOutput;
 }
 
+function collectCompareNodes(nodeIds, oldOutput) {
+    const newOutput = {};
+    for (const nodeId of nodeIds) {
+        recursiveAddNodes(nodeId, oldOutput, newOutput);
+    }
+    return newOutput;
+}
+
 function initCompareQueueHook() {
     if (compareQueueHooked) return;
     compareQueueHooked = true;
@@ -33,14 +41,11 @@ function initCompareQueueHook() {
     api.queuePrompt = async function (index, prompt) {
         if (compareQueueNodeIds?.length && prompt?.output) {
             const oldOutput = prompt.output;
-            const newOutput = {};
-            for (const nodeId of compareQueueNodeIds) {
-                recursiveAddNodes(nodeId, oldOutput, newOutput);
-            }
+            const newOutput = collectCompareNodes(compareQueueNodeIds, oldOutput);
             if (Object.keys(newOutput).length > 0) {
                 prompt.output = newOutput;
             } else {
-                throw new Error("[whtools] 未能收集到图像对比+节点依赖，已取消快捷执行。");
+                console.warn("[whtools] 图像对比+节点不在本次 prompt 中，已回退为正常执行。", compareQueueNodeIds);
             }
         }
         return originalApiQueuePrompt(index, prompt);
@@ -80,6 +85,42 @@ function ensureImage(item, node) {
     item.img.src = item.url;
 }
 
+function persistCompareState(node) {
+    node.properties = node.properties || {};
+    node.properties.wuhuo_compare_state = {
+        version: 1,
+        images: (node._wuhuoCompareImages || []).map((item) => ({
+            name: item.name,
+            filename: item.file,
+            type: item.type,
+            subfolder: item.subfolder || "",
+            selected: Boolean(item.selected),
+        })),
+    };
+}
+
+function restoreCompareState(node, state) {
+    const savedImages = Array.isArray(state?.images) ? state.images : [];
+    const images = savedImages
+        .filter((data) => data?.filename)
+        .map((data, index) => makeItem(
+            {
+                filename: data.filename,
+                type: data.type || "temp",
+                subfolder: data.subfolder || "",
+            },
+            data.name || `Image ${index + 1}`,
+            Boolean(data.selected),
+        ));
+
+    node._wuhuoCompareImages = images;
+    let selected = images.filter((item) => item.selected).slice(0, 2);
+    if (!selected.length && images.length) {
+        selected = images.slice(0, Math.min(2, images.length));
+    }
+    setSelected(node, selected);
+}
+
 function setSelected(node, selected) {
     const images = node._wuhuoCompareImages || [];
     for (const image of images) image.selected = false;
@@ -88,6 +129,7 @@ function setSelected(node, selected) {
         item.selected = true;
         ensureImage(item, node);
     }
+    persistCompareState(node);
     node.setDirtyCanvas(true, true);
 }
 
@@ -236,6 +278,7 @@ function addPreviewLikeImageMenu(options, item) {
 }
 
 function chooseRightClickedItem(node, canvas) {
+    if (node.flags?.collapsed) return null;
     const selected = node._wuhuoCompareSelected || [];
     if (!selected.length) return null;
     const mouse = canvas?.graph_mouse;
@@ -260,6 +303,7 @@ app.registerExtension({
 
             for (const node of graph._nodes) {
                 if (node.type !== NODE_TYPE) continue;
+                if (node.flags?.collapsed) continue;
                 const isMouseOver = mouse[0] >= node.pos[0] &&
                     mouse[0] <= node.pos[0] + node.size[0] &&
                     mouse[1] >= node.pos[1] &&
@@ -293,6 +337,15 @@ app.registerExtension({
             this.setSize([Math.max(this.size?.[0] || 320, 320), Math.max(this.size?.[1] || 260, 260)]);
         };
 
+        const origOnConfigure = nodeType.prototype.onConfigure;
+        nodeType.prototype.onConfigure = function (info) {
+            const result = origOnConfigure?.apply(this, arguments);
+            const state = this.properties?.wuhuo_compare_state
+                || info?.properties?.wuhuo_compare_state;
+            if (state) restoreCompareState(this, state);
+            return result;
+        };
+
         nodeType.prototype.onExecuted = function (output) {
             output = output || {};
             const aImages = output.a_images || [];
@@ -314,6 +367,7 @@ app.registerExtension({
 
         const origOnDrawForeground = nodeType.prototype.onDrawForeground;
         nodeType.prototype.onDrawForeground = function (ctx) {
+            if (this.flags?.collapsed) return;
             origOnDrawForeground?.apply(this, arguments);
             const images = this._wuhuoCompareImages || [];
             const selected = this._wuhuoCompareSelected || [];
@@ -363,6 +417,7 @@ app.registerExtension({
 
         const origOnMouseDown = nodeType.prototype.onMouseDown;
         nodeType.prototype.onMouseDown = function (event, pos, canvas) {
+            if (this.flags?.collapsed) return origOnMouseDown?.apply(this, arguments);
             for (const area of this._wuhuoCompareHitAreas || []) {
                 if (pos[0] >= area.x && pos[0] <= area.x + area.w && pos[1] >= area.y && pos[1] <= area.y + area.h) {
                     const selected = [...(this._wuhuoCompareSelected || [])];
@@ -380,6 +435,7 @@ app.registerExtension({
 
         const origOnMouseUp = nodeType.prototype.onMouseUp;
         nodeType.prototype.onMouseUp = function (event, pos, canvas) {
+            if (this.flags?.collapsed) return origOnMouseUp?.apply(this, arguments);
             origOnMouseUp?.apply(this, arguments);
             this._wuhuoPointerDown = false;
             this.setDirtyCanvas(true, false);
@@ -387,6 +443,7 @@ app.registerExtension({
 
         const origOnMouseEnter = nodeType.prototype.onMouseEnter;
         nodeType.prototype.onMouseEnter = function (event) {
+            if (this.flags?.collapsed) return origOnMouseEnter?.apply(this, arguments);
             origOnMouseEnter?.apply(this, arguments);
             this._wuhuoPointerOver = true;
             this.setDirtyCanvas(true, false);
@@ -394,6 +451,7 @@ app.registerExtension({
 
         const origOnMouseLeave = nodeType.prototype.onMouseLeave;
         nodeType.prototype.onMouseLeave = function (event) {
+            if (this.flags?.collapsed) return origOnMouseLeave?.apply(this, arguments);
             origOnMouseLeave?.apply(this, arguments);
             this._wuhuoPointerOver = false;
             this._wuhuoPointerDown = false;
@@ -402,6 +460,7 @@ app.registerExtension({
 
         const origOnMouseMove = nodeType.prototype.onMouseMove;
         nodeType.prototype.onMouseMove = function (event, pos, canvas) {
+            if (this.flags?.collapsed) return origOnMouseMove?.apply(this, arguments);
             origOnMouseMove?.apply(this, arguments);
             this._wuhuoPointerX = pos[0];
             this.setDirtyCanvas(true, false);

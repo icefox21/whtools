@@ -6,8 +6,10 @@
   const KEY_MODAL_POS = "jdsc:modalPos";
   const KEY_FLOAT_POS = "jdsc:floatPos";
   const KEY_LANG = "jdsc:lang";
+  const KEY_TEXT_HISTORY = "jdsc:text_history";
   const JDSC_VERSION = "version-banner-disabled-2026-06-17";
   let NODE_CACHE = null;
+  let TEXT_HISTORY_TIMER = null;
   let SETTINGS_LOADED = false;  // 标志：设置是否已从服务器加载完成
 
   try {
@@ -189,15 +191,32 @@
   }
 
   function ensureStyles() {
-    if (document.getElementById("jdsc-styles")) return;
-    const style = createEl("style");
-    style.id = "jdsc-styles";
+    let style = document.getElementById("jdsc-styles");
+    if (style && style.textContent.includes("jdsc-text-history-list")) return;
+    const isNew = !style;
+    if (isNew) {
+      style = document.createElement("style");
+      style.id = "jdsc-styles";
+    }
     style.textContent = `
       .jdsc-floating-group { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; z-index: 10000; }
       .jdsc-floating { width: 38px; height: 38px; border-radius: 19px; background: #fa3d64; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: grab; box-shadow: 0 6px 16px rgba(0,0,0,.3); transition: transform 0.2s; }
       .jdsc-floating:hover { transform: scale(1.1); }
       .jdsc-floating:active { cursor: grabbing; }
       .jdsc-floating-workflow { background: #1677ff; }
+      .jdsc-text-history-list { display: flex; flex-direction: column; gap: 8px; padding: 12px; flex: 1; min-height: 0; overflow-y: auto; }
+      .jdsc-text-history-list::-webkit-scrollbar { width: 8px; }
+      .jdsc-text-history-list::-webkit-scrollbar-track { background: #111316; border-radius: 4px; }
+      .jdsc-text-history-list::-webkit-scrollbar-thumb { background: #3a3f44; border-radius: 4px; }
+      .jdsc-text-history-list::-webkit-scrollbar-thumb:hover { background: #50565e; }
+      .jdsc-text-history-item { border: 1px solid #2f363d; border-radius: 8px; padding: 10px; background: #171a1f; cursor: pointer; color: #dfe5eb; }
+      .jdsc-text-history-item:hover { border-color: #1677ff; background: #1c2430; }
+      .jdsc-text-history-time { font-size: 11px; color: #87909a; margin-bottom: 5px; }
+      .jdsc-text-history-text { font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-all; overflow-wrap: break-word; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; margin: 0; }
+      .jdsc-text-history-empty { color: #8a9199; padding: 28px 16px; text-align: center; font-size: 13px; }
+      .jdsc-text-history-actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #2f363d; background: #15181c; flex-shrink: 0; }
+      .jdsc-text-history-actions button { background: #22272e; color: #dfe5eb; border: 1px solid #3a424c; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+      .jdsc-text-history-actions button:hover { border-color: #1677ff; }
       
       .jdsc-modal { 
         position: fixed; 
@@ -482,7 +501,9 @@
         margin: 4px 0;
       }
     `;
-    document.head.appendChild(style);
+    if (isNew) {
+      document.head.appendChild(style);
+    }
   }
 
   const TEXTS = {
@@ -2067,6 +2088,9 @@
       }
     } catch { }
     try {
+      if (options.history !== false && String(widget.name || "") === "edit_text") rememberTextHistory(text);
+    } catch { }
+    try {
       const g = getGraph();
       if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true);
     } catch { }
@@ -2078,6 +2102,131 @@
       if (widget.element && typeof widget.element.value !== "undefined") return String(widget.element.value || "");
       return String(widget.value || "");
     } catch { return ""; }
+  }
+  function getTextHistory() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(KEY_TEXT_HISTORY) || "[]");
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .map(item => {
+          if (typeof item === "string") return { text: item, time: 0 };
+          return { text: String(item?.text || ""), time: Number(item?.time || 0) || 0 };
+        })
+        .filter(item => item.text.trim())
+        .sort((a, b) => b.time - a.time);
+    } catch { return []; }
+  }
+  function saveTextHistory(items) {
+    try { localStorage.setItem(KEY_TEXT_HISTORY, JSON.stringify(items.slice(0, 80))); } catch { }
+  }
+  function rememberTextHistory(value) {
+    const text = String(value || "").trim();
+    if (!text) return;
+    const now = Date.now();
+    const items = getTextHistory().filter(item => item.text !== text);
+    items.unshift({ text, time: now });
+    saveTextHistory(items);
+  }
+  function scheduleRememberTextHistory(value) {
+    const text = String(value || "");
+    if (TEXT_HISTORY_TIMER) clearTimeout(TEXT_HISTORY_TIMER);
+    TEXT_HISTORY_TIMER = setTimeout(() => rememberTextHistory(text), 700);
+  }
+  function formatTextHistoryTime(time) {
+    try {
+      if (!time) return "";
+      return new Date(time).toLocaleString();
+    } catch { return ""; }
+  }
+  function openTextHistoryModal(node, wEdit) {
+    try { ensureStyles(); } catch { }
+    try { document.getElementById("jdsc-text-history-modal")?.remove(); } catch { }
+    const modal = createEl("div", "jdsc-modal");
+    modal.id = "jdsc-text-history-modal";
+    modal.style.position = "fixed";
+    modal.style.width = "520px";
+    modal.style.maxHeight = "68vh";
+    modal.style.display = "flex";
+    modal.style.flexDirection = "column";
+    modal.style.overflow = "hidden";
+    modal.style.left = Math.max(20, (window.innerWidth - 520) / 2) + "px";
+    modal.style.top = Math.max(20, (window.innerHeight - 480) / 2) + "px";
+
+    const header = createEl("div", "jdsc-header");
+    header.title = "右键此处可以关闭历史记录";
+    const title = createEl("div", "jdsc-title", "历史记录");
+    const close = createEl("button", "jdsc-close", "×");
+    close.onclick = () => modal.remove();
+    header.appendChild(title);
+    header.appendChild(close);
+    modal.appendChild(header);
+    let moving = false, sx = 0, sy = 0, startLeft = 0, startTop = 0;
+    header.style.cursor = "move";
+    header.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || e.target === close) return;
+      const rect = modal.getBoundingClientRect();
+      moving = true;
+      sx = e.clientX;
+      sy = e.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+      modal.style.left = startLeft + "px";
+      modal.style.top = startTop + "px";
+      modal.style.right = "auto";
+      modal.style.bottom = "auto";
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!moving) return;
+      modal.style.left = Math.max(0, startLeft + e.clientX - sx) + "px";
+      modal.style.top = Math.max(0, startTop + e.clientY - sy) + "px";
+    });
+    window.addEventListener("mouseup", () => { moving = false; });
+    header.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      modal.remove();
+    });
+
+    const list = createEl("div", "jdsc-text-history-list");
+    list.style.overflowY = "auto";
+    list.style.display = "flex";
+    list.style.flexDirection = "column";
+    list.style.gap = "8px";
+    list.style.padding = "12px";
+    list.style.flex = "1";
+    list.style.minHeight = "0";
+    const items = getTextHistory();
+    if (!items.length) {
+      list.appendChild(createEl("div", "jdsc-text-history-empty", "暂无历史提示词"));
+    } else {
+      items.forEach(item => {
+        const row = createEl("div", "jdsc-text-history-item");
+        row.title = "点击填入输入框";
+        row.appendChild(createEl("div", "jdsc-text-history-time", formatTextHistoryTime(item.time)));
+        row.appendChild(createEl("div", "jdsc-text-history-text", item.text));
+        row.addEventListener("click", () => {
+          syncWidgetTextValue(node, wEdit, item.text, { callback: true, updateManual: true });
+          node.properties = Object.assign({}, node.properties || {}, { current_fav_name: "" });
+          modal.remove();
+        });
+        list.appendChild(row);
+      });
+    }
+    modal.appendChild(list);
+
+    const actions = createEl("div", "jdsc-text-history-actions");
+    const clear = createEl("button", "", "清空历史");
+    clear.onclick = () => {
+      if (!getTextHistory().length) return;
+      if (!confirm("确定清空文本++历史记录？")) return;
+      saveTextHistory([]);
+      modal.remove();
+      openTextHistoryModal(node, wEdit);
+    };
+    actions.appendChild(clear);
+    modal.appendChild(actions);
+    document.body.appendChild(modal);
   }
   function inputLinked(n) {
     try {
@@ -2571,7 +2720,7 @@
         const startX = 140;
         const endX = this.size[0] - 10;
         const totalAvail = endX - startX;
-        const numIcons = 7;
+        const numIcons = 8;
         let step = totalAvail / numIcons;
         if (step > 30) step = 30; // Max spacing
         
@@ -2584,7 +2733,8 @@
             { id: 'save', text: "⭐" },
             { id: 'enhance', text: "🚀" },
             { id: 'kw', text: "🔑" },
-            { id: 'rand', text: "🎲" }
+            { id: 'rand', text: "🎲" },
+            { id: 'history', text: "🕘" }
         ];
 
         ctx.font = "14px Arial";
@@ -2726,6 +2876,8 @@
                                 }
                             } else if (box.id === 'rand') {
                                 if(wRand) { wRand.value = !wRand.value; app.graph.setDirtyCanvas(true,true); }
+                            } else if (box.id === 'history') {
+                                openTextHistoryModal(this, wEdit);
                             }
                             return true;
                         }
@@ -2745,7 +2897,7 @@
       if (wEdit.element) wEdit.element.style.resize = "none";
       const oc3 = wEdit.callback;
       wEdit.callback = (val) => {
-        try { oc3?.call(node, val); node.properties = Object.assign({}, node.properties || {}, { __manual_text_for_pass: String(val || "") }); const g = getGraph(); if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true); } catch { }
+        try { oc3?.call(node, val); const text = String(val || ""); node.properties = Object.assign({}, node.properties || {}, { __manual_text_for_pass: text }); scheduleRememberTextHistory(text); const g = getGraph(); if (g && typeof g.setDirtyCanvas === 'function') g.setDirtyCanvas(true, true); } catch { }
       };
     }
 

@@ -5,3 +5,9 @@ backup_*/
 .DS_Store
 .vscode/
 data/
+
+# Local user data (personal presets, backups, temp files)
+qwen_vl_presets/
+# Local test / automation scripts
+test/
+

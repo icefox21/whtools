@@ -1,9 +1,23 @@
-﻿# Copyright (c) 2024-2026 icefox21
+# Copyright (c) 2024-2026 icefox21
 # This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
 # Project Link: https://github.com/icefox21/whtools
 
 import os
 import asyncio
+
+from .workflow_resolution import resolve_native_import
+from .workflow_storage import (
+    InvalidWorkflowContent,
+    StagePathViolation,
+    WorkflowAlreadyExists,
+    WorkflowRevisionConflict,
+    atomic_write_workflow,
+    promote_staged_workflow,
+    parse_workflow_json,
+    revision_for_bytes,
+    stage_workflow_content,
+    staging_directory,
+)
 
 CATEGORY = "wuhuo"
 
@@ -517,9 +531,9 @@ class WuhuoIgnoreGroup:
         return ()
 
 NODE_CLASS_MAPPINGS.update({"WuhuoTextGate": WuhuoTextGate})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGate": "馃摑鏂囨湰+"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGate": "文本+"})
 NODE_CLASS_MAPPINGS.update({"WuhuoTextGatePro": WuhuoTextGatePro})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGatePro": "馃摑鏂囨湰++"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoTextGatePro": "文本++"})
 NODE_CLASS_MAPPINGS.update({"WuhuoIgnoreGroup": WuhuoIgnoreGroup})
 NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoIgnoreGroup": "忽略选择框"})
 NODE_CLASS_MAPPINGS.pop("WuhuoEcho", None)
@@ -927,6 +941,18 @@ def _path_is_inside(path, parent):
     except Exception:
         return False
 
+def _default_workflow_root():
+    return _resolve_workflow_path("user/default/workflows")
+
+def _workflow_storage_class(file_path):
+    default_root = _default_workflow_root()
+    staging_root = str(staging_directory(default_root))
+    if _path_is_inside(file_path, staging_root):
+        return "staged"
+    if _path_is_inside(file_path, default_root):
+        return "default"
+    return "external"
+
 def _validate_workflow_file_path(file_path):
     resolved = _resolve_workflow_path(file_path)
     if not resolved:
@@ -950,20 +976,23 @@ def _find_workflow_file_by_basename(file_path):
     if not name:
         return None
     target = os.path.normcase(name)
+    matches = []
+    seen = set()
     for folder in _get_allowed_workflow_dirs():
         try:
             if not os.path.isdir(folder):
                 continue
-            direct = os.path.join(folder, name)
-            if os.path.isfile(direct):
-                return os.path.realpath(os.path.abspath(direct))
             for root, _dirs, files in os.walk(folder):
                 for filename in files:
                     if os.path.normcase(filename) == target and filename.lower().endswith(".json"):
-                        return os.path.realpath(os.path.abspath(os.path.join(root, filename)))
+                        resolved = os.path.realpath(os.path.abspath(os.path.join(root, filename)))
+                        key = os.path.normcase(resolved)
+                        if key not in seen:
+                            seen.add(key)
+                            matches.append(resolved)
         except Exception:
             continue
-    return None
+    return matches[0] if len(matches) == 1 else None
 
 # 宸ヤ綔娴佺鐞嗙殑鍚庣璺敱锛堜粎鍦≒romptServer鍙敤鏃舵坊鍔狅級
 if PromptServer is not None and web is not None:
@@ -1149,7 +1178,7 @@ if PromptServer is not None and web is not None:
                 if found:
                     file_path = found
                 else:
-                    return web.json_response({"content": None, "error": err})
+                    return web.json_response({"content": None, "error": "无法唯一定位工作流文件，请重新添加该工作流"})
             
             # 妫€鏌ユ枃浠舵槸鍚﹀瓨鍦?
             if not os.path.exists(file_path):
@@ -1157,13 +1186,24 @@ if PromptServer is not None and web is not None:
                 if found:
                     file_path = found
                 else:
-                    return web.json_response({"content": None, "error": "文件不存在"})
+                    return web.json_response({"content": None, "error": "文件不存在或存在多个同名文件，请重新添加该工作流"})
             
-            # 璇诲彇鏂囦欢鍐呭
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = json.load(f)
-            
-            return web.json_response({"content": content, "path": file_path})
+            # Preserve exact file bytes for optimistic-concurrency revisioning.
+            with open(file_path, "rb") as f:
+                raw = f.read()
+            content = parse_workflow_json(raw.decode("utf-8-sig"))
+
+            return web.json_response({
+                "content": content,
+                "path": file_path,
+                "revision": revision_for_bytes(raw),
+                "storage_class": _workflow_storage_class(file_path),
+            })
+        except InvalidWorkflowContent as e:
+            return web.json_response(
+                {"content": None, "error": str(e), "code": "invalid_workflow_json"},
+                status=400,
+            )
         except Exception as e:
             return web.json_response({"content": None, "error": str(e)})
     
@@ -1175,35 +1215,188 @@ if PromptServer is not None and web is not None:
             file_path = payload.get("path", "")
             content = payload.get("content", "")
             overwrite = bool(payload.get("overwrite", False))
+            expected_name = str(payload.get("expected_name", "") or "").strip()
+            expected_revision = payload.get("expected_revision")
             
             if not file_path:
-                return web.json_response({"success": False, "error": "未提供文件路径"})
-            
-            if not content:
-                return web.json_response({"success": False, "error": "未提供文件内容"})
+                return web.json_response(
+                    {"success": False, "error": "未提供文件路径", "code": "missing_workflow_path"},
+                    status=400,
+                )
             
             file_path, err = _validate_workflow_file_path(file_path)
             if err:
-                return web.json_response({"success": False, "error": err})
+                return web.json_response(
+                    {"success": False, "error": err, "code": "invalid_workflow_path"},
+                    status=400,
+                )
 
-            if os.path.exists(file_path) and not overwrite:
-                return web.json_response({"success": False, "error": "文件已存在"})
-            
-            # 纭繚鐩綍瀛樺湪
-            dir_path = os.path.dirname(file_path)
-            if dir_path:
-                os.makedirs(dir_path, exist_ok=True)
-            
-            # 淇濆瓨鏂囦欢
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            
-            return web.json_response({"success": True})
+            target_name = os.path.splitext(os.path.basename(file_path))[0]
+            if expected_name and target_name.casefold() != expected_name.casefold():
+                return web.json_response(
+                    {
+                        "success": False,
+                        "error": "工作流文件名校验失败，已取消覆盖保存",
+                        "code": "workflow_name_mismatch",
+                    },
+                    status=409,
+                )
+            if overwrite and not isinstance(expected_revision, str):
+                return web.json_response(
+                    {
+                        "success": False,
+                        "error": "覆盖保存缺少工作流版本标识，请重新加载后再保存",
+                        "code": "missing_workflow_revision",
+                    },
+                    status=400,
+                )
+
+            revision = atomic_write_workflow(
+                file_path,
+                content,
+                overwrite=overwrite,
+                expected_revision=expected_revision if overwrite else None,
+            )
+            return web.json_response({"success": True, "revision": revision})
+        except InvalidWorkflowContent as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "invalid_workflow_json"},
+                status=400,
+            )
+        except WorkflowAlreadyExists as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_already_exists"},
+                status=409,
+            )
+        except WorkflowRevisionConflict as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_revision_conflict"},
+                status=409,
+            )
         except Exception as e:
-            return web.json_response({"success": False, "error": str(e)})
-    
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_save_failed"},
+                status=500,
+            )
+
+    @PromptServer.instance.routes.post("/jdsc/workflow_resolve_native_import")
+    async def jdsc_resolve_native_workflow_import(request):
+        try:
+            payload = await request.json()
+            result = resolve_native_import(
+                _default_workflow_root(),
+                payload.get("content", ""),
+            )
+            response = {"success": True, "status": result.status}
+            if result.status == "default_unique":
+                response.update({"path": str(result.path), "revision": result.revision})
+            elif result.status == "ambiguous":
+                response["candidates"] = [str(path) for path in result.candidates]
+            return web.json_response(response)
+        except InvalidWorkflowContent as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "invalid_workflow_json"},
+                status=400,
+            )
+        except Exception as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_resolution_failed"},
+                status=500,
+            )
+
+    @PromptServer.instance.routes.post("/jdsc/workflow_stage")
+    async def jdsc_stage_workflow(request):
+        try:
+            payload = await request.json()
+            content = payload.get("content", "")
+            display_name = str(payload.get("display_name", "") or "未命名工作流")
+            source_type = str(payload.get("source_type", "workflow_file") or "workflow_file")
+            if source_type not in {"workflow_file", "image_drop", "canvas_import"}:
+                return web.json_response(
+                    {"success": False, "error": "不支持的暂存来源类型", "code": "invalid_stage_source"},
+                    status=400,
+                )
+            result = stage_workflow_content(
+                _default_workflow_root(),
+                content,
+                display_name=display_name,
+                source_type=source_type,
+            )
+            return web.json_response({
+                "success": True,
+                "path": str(result.path),
+                "revision": result.revision,
+                "stage_id": result.stage_id,
+                "storage": "staged",
+            })
+        except InvalidWorkflowContent as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "invalid_workflow_json"},
+                status=400,
+            )
+        except WorkflowAlreadyExists as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_already_exists"},
+                status=409,
+            )
+        except Exception as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_stage_failed"},
+                status=500,
+            )
+
+    @PromptServer.instance.routes.post("/jdsc/workflow_stage_promote")
+    async def jdsc_promote_staged_workflow(request):
+        try:
+            payload = await request.json()
+            stage_path = payload.get("stage_path", "")
+            target_name = str(payload.get("target_name", "") or "")
+            expected_revision = payload.get("expected_revision")
+            if not stage_path or not target_name or not isinstance(expected_revision, str):
+                return web.json_response(
+                    {"success": False, "error": "临时工作流提升参数不完整", "code": "invalid_stage_request"},
+                    status=400,
+                )
+            result = promote_staged_workflow(
+                _default_workflow_root(),
+                stage_path,
+                target_name,
+                expected_revision=expected_revision,
+            )
+            return web.json_response({
+                "success": True,
+                "path": str(result.path),
+                "revision": result.revision,
+                "storage": "default",
+            })
+        except StagePathViolation as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "invalid_stage_path"},
+                status=400,
+            )
+        except WorkflowAlreadyExists as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_already_exists"},
+                status=409,
+            )
+        except WorkflowRevisionConflict as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_revision_conflict"},
+                status=409,
+            )
+        except FileNotFoundError as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_not_found"},
+                status=404,
+            )
+        except Exception as e:
+            return web.json_response(
+                {"success": False, "error": str(e), "code": "workflow_promote_failed"},
+                status=500,
+            )
+
     # ============================================================
-    # 鏂囨湰鏀惰棌鍔熻兘 API (鐙珛鎵╁睍鏀寔)
+    # 文本收藏功能 API (独立扩展支持)
     # ============================================================
     TEXT_FAVS_FILE = os.path.join(DATA_DIRECTORY, "text_favorites.json")
 
@@ -1284,8 +1477,22 @@ except Exception as e:
     print(f"[whtools] 图像对比模块加载失败: {e}")
 
 try:
+    from . import lora_merge
+    NODE_CLASS_MAPPINGS.update(lora_merge.NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(lora_merge.NODE_DISPLAY_NAME_MAPPINGS)
+except Exception as e:
+    print(f"[whtools] LoRA 合并模块加载失败: {e}")
+
+try:
+    from . import prompt_randomizer
+    NODE_CLASS_MAPPINGS.update(prompt_randomizer.NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(prompt_randomizer.NODE_DISPLAY_NAME_MAPPINGS)
+except Exception as e:
+    print(f"[whtools] PromptRandomizer 模块加载失败: {e}")
+
+try:
     from . import asset_library
-    # 娉ㄥ唽鏋佺畝璧勪骇搴?API 璺敱
+    # 娉ㄥ唽鏋佺畝璧勪骇搴?API 璺敤
     asset_library.register_routes()
     NODE_CLASS_MAPPINGS.update(asset_library.NODE_CLASS_MAPPINGS)
     NODE_DISPLAY_NAME_MAPPINGS.update(asset_library.NODE_DISPLAY_NAME_MAPPINGS)
@@ -1423,3 +1630,31 @@ def patch_kjnodes_vae_loader():
 
 # Run the patch immediately during jdsc import
 patch_kjnodes_vae_loader()
+
+# Z-Image character continuity nodes
+try:
+    from . import zimage_continuity
+    NODE_CLASS_MAPPINGS.update(zimage_continuity.NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(zimage_continuity.NODE_DISPLAY_NAME_MAPPINGS)
+except Exception as e:
+    print(f"[whtools] Z-Image 连续性模块加载失败: {e}")
+
+# Qwen-VL 本地极速 API 节点 (5070Ti)
+try:
+    import importlib
+    from . import qwen_vl_local
+    importlib.reload(qwen_vl_local)
+    NODE_CLASS_MAPPINGS.update(qwen_vl_local.NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(qwen_vl_local.NODE_DISPLAY_NAME_MAPPINGS)
+except Exception as e:
+    print(f"[whtools] Qwen-VL 本地极速模块加载失败: {e}")
+
+# 长文本分割转列表 (LongTextToList - ported from ComfyUI_Lam)
+try:
+    from . import long_text_to_list
+    NODE_CLASS_MAPPINGS.update(long_text_to_list.NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(long_text_to_list.NODE_DISPLAY_NAME_MAPPINGS)
+except Exception as e:
+    print(f"[whtools] 长文本转列表模块加载失败: {e}")
+
+

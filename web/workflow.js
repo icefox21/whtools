@@ -2,8 +2,155 @@
 // This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
 // Project Link: https://github.com/icefox21/whtools
 
+
 // 工作流管理前端代码
 (() => {
+  function sanitizeExternalWorkflowGraph(graph) {
+    let removedLegacySession = false;
+    if (graph?.extra && Object.prototype.hasOwnProperty.call(graph.extra, 'jdsc_session_id')) {
+      delete graph.extra.jdsc_session_id;
+      removedLegacySession = true;
+    }
+    if (graph) {
+      graph.jdsc_path = null;
+      graph.jdsc_name = null;
+      delete graph.__jdsc_session_id;
+    }
+    return { removedLegacySession };
+  }
+
+  function stripLegacySessionFromSerializedWorkflow(workflow) {
+    if (workflow?.extra && Object.prototype.hasOwnProperty.call(workflow.extra, 'jdsc_session_id')) {
+      delete workflow.extra.jdsc_session_id;
+    }
+    return workflow;
+  }
+
+  function sortedWorkflowValue(value) {
+    if (Array.isArray(value)) return value.map(sortedWorkflowValue);
+    if (!value || typeof value !== 'object') return value;
+    const sorted = {};
+    for (const key of Object.keys(value).sort()) sorted[key] = sortedWorkflowValue(value[key]);
+    return sorted;
+  }
+
+  function workflowsSemanticallyEqual(left, right) {
+    const comparable = (workflow) => {
+      const copy = sortedWorkflowValue(workflow);
+      if (copy?.extra && Object.prototype.hasOwnProperty.call(copy.extra, 'jdsc_session_id')) {
+        delete copy.extra.jdsc_session_id;
+      }
+      return JSON.stringify(copy);
+    };
+    return comparable(left) === comparable(right);
+  }
+
+  function reconcileAutosavedWorkflowRevision({
+    expectedRevision = '', diskRevision = '', diskWorkflow, currentWorkflow,
+  } = {}) {
+    if (!diskRevision || diskRevision === expectedRevision) return null;
+    return workflowsSemanticallyEqual(diskWorkflow, currentWorkflow) ? diskRevision : null;
+  }
+
+  // ComfyUI AutoSave only writes persisted active workflows. WHTools owns writes
+  // for a bound workflow, so shadow only its `isPersisted` getter. In particular,
+  // do not change `size`: that would make ComfyUI treat it as a temporary file.
+  function suppressNativeAutosaveForManagedWorkflow(workflow) {
+    if (!workflow || typeof workflow !== 'object') return null;
+    const originalDescriptor = Object.getOwnPropertyDescriptor(workflow, 'isPersisted');
+    try {
+      Object.defineProperty(workflow, 'isPersisted', {
+        configurable: true,
+        enumerable: originalDescriptor?.enumerable ?? false,
+        get: () => false,
+      });
+      return { originalDescriptor };
+    } catch (error) {
+      console.warn('[工作流+] 无法隔离原生 AutoSave，保留版本冲突保护:', error);
+      return null;
+    }
+  }
+
+  function restoreNativeAutosaveForManagedWorkflow(workflow, token) {
+    if (!workflow || !token || typeof workflow !== 'object') return false;
+    try {
+      if (token.originalDescriptor) {
+        Object.defineProperty(workflow, 'isPersisted', token.originalDescriptor);
+      } else {
+        delete workflow.isPersisted;
+      }
+      return true;
+    } catch (error) {
+      console.warn('[工作流+] 恢复原生 AutoSave 状态失败:', error);
+      return false;
+    }
+  }
+
+  function bindingMatchesActive({ binding, active, graph }) {
+    if (!binding || !active || !graph) return { ok: false, reason: 'missing_binding_state' };
+    if (binding.workflow && active.workflow && binding.workflow !== active.workflow &&
+      (!binding.workflowKey || !active.workflowKey || binding.workflowKey !== String(active.workflowKey))) {
+      return { ok: false, reason: 'active_workflow_changed' };
+    }
+    const activeKey = String(active.workflowKey || '');
+    if (binding.workflowKey && activeKey && binding.workflowKey !== activeKey) {
+      return { ok: false, reason: 'active_workflow_changed' };
+    }
+    const activeName = cleanWorkflowName(active.displayName);
+    if (binding.nameNoExt && activeName &&
+      binding.nameNoExt.toLocaleLowerCase() !== activeName.toLocaleLowerCase()) {
+      return { ok: false, reason: 'active_workflow_changed' };
+    }
+    if (normalizeWorkflowPath(graph.jdsc_path) !== normalizeWorkflowPath(binding.path)) {
+      return { ok: false, reason: 'graph_path_changed' };
+    }
+    if (String(graph.__jdsc_session_id || '') !== String(binding.sessionId || '')) {
+      return { ok: false, reason: 'session_changed' };
+    }
+    return { ok: true };
+  }
+
+  function classifyHistoryEntry(item, favorites = {}) {
+    const path = String(item?.path || '');
+    const normalizedPath = normalizeWorkflowPath(path);
+    const favorite = Object.keys(favorites || {}).some(
+      (candidate) => normalizeWorkflowPath(candidate) === normalizedPath,
+    );
+    const storage = item?.storage === 'staged' || normalizedPath.includes('/__工作流+临时__/')
+      ? 'staged' : 'default';
+    return { storage, favorite };
+  }
+
+  function makeHistoryEntry({
+    id = '', name = '未命名工作流', path = null, method = 'jdsc', storage = 'default',
+    sourceType = 'workflow_file', sourceName = '', sourcePath = null, stageId = '', now = Date.now(),
+  }) {
+    return {
+      id: id || `wfhist_${String(now)}_${Math.random().toString(36).slice(2)}`,
+      name, path, time: now, last_saved: now, method, storage,
+      source_type: sourceType, source_name: sourceName, source_path: sourcePath, stage_id: stageId,
+    };
+  }
+
+  function upsertHistoryEntry(history, entry, { limit = 200 } = {}) {
+    const items = Array.isArray(history) ? history : [];
+    const remaining = items.filter((item) => {
+      if (entry.path && item.path === entry.path) return false;
+      return !(!entry.path && item.name === entry.name && !item.path);
+    });
+    return [entry, ...remaining].slice(0, limit);
+  }
+
+  function createSerialWriteQueue() {
+    const tails = new Map();
+    return function enqueue(key, task) {
+      const previous = tails.get(key) || Promise.resolve();
+      const run = previous.catch(() => undefined).then(task);
+      tails.set(key, run.catch(() => undefined));
+      return run;
+    };
+  }
+
   if (window.__whtools_workflow_initialized) return;
   window.__whtools_workflow_initialized = true;
 
@@ -18,6 +165,13 @@
   let WF_FOLDERS_CACHE = null;
   let WF_FAVS_CACHE = null;
   let WF_HISTORY_CACHE = null;
+  let WF_HISTORY_SYNC_PROMISE = null;
+  const workflowSaveKeyState = window.__whtools_workflow_save_key_state || {
+    active: false,
+    cooldownUntil: 0,
+  };
+  window.__whtools_workflow_save_key_state = workflowSaveKeyState;
+  const enqueueWorkflowStateWrite = createSerialWriteQueue();
 
   // 页面加载时立即同步服务器 settings，确保 getWFHotkey() 在 keydown 时能正确读到已保存的快捷键
   // 注意：jdsc.js 也会同步，但两者共享 window.__jdsc_settings_cache，先到者写入，后到者覆盖但内容相同
@@ -66,6 +220,17 @@
     } catch { }
   }
 
+  async function ensureHistoryLoaded() {
+    if (WF_HISTORY_CACHE !== null) return WF_HISTORY_CACHE;
+    if (!WF_HISTORY_SYNC_PROMISE) {
+      WF_HISTORY_SYNC_PROMISE = syncHistoryFromServer().finally(() => {
+        WF_HISTORY_SYNC_PROMISE = null;
+      });
+    }
+    await WF_HISTORY_SYNC_PROMISE;
+    return WF_HISTORY_CACHE !== null ? WF_HISTORY_CACHE : [];
+  }
+
   function loadWF(key, def) {
     try {
       // 对于文件夹和收藏，强制使用服务器缓存（如果同步失败则返回空，不回退到LocalStorage）
@@ -84,51 +249,67 @@
     }
   }
 
-  function saveWF(key, val) {
+  function showWorkflowPersistenceError(error) {
+    console.error('[工作流+] 状态保存失败:', error);
     try {
-      if (key === KEY_WF_FOLDERS) {
-        WF_FOLDERS_CACHE = Array.isArray(val) ? val : [];
-        fetch('/jdsc/workflow_folders_save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(WF_FOLDERS_CACHE)
-        });
-        return;
-      }
-      if (key === KEY_WF_FAVS) {
-        WF_FAVS_CACHE = (val && typeof val === 'object') ? val : {};
-        fetch('/jdsc/workflow_favorites_save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(WF_FAVS_CACHE)
-        });
-        return;
-      }
-      if (key === KEY_WF_HISTORY) {
-        WF_HISTORY_CACHE = Array.isArray(val) ? val : [];
-        fetch('/jdsc/workflow_history_save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(WF_HISTORY_CACHE)
-        });
-        return;
-      }
-      // 如果是 jdsc: 开头的设置，同步到服务器 settings.json
-      if (String(key || '').startsWith('jdsc:')) {
-        // 确保缓存已初始化，避免竞态条件导致快捷键保存失败
-        if (typeof window.__jdsc_settings_cache === 'undefined') {
-          window.__jdsc_settings_cache = {};
-        }
-        window.__jdsc_settings_cache[key] = val;
-        fetch('/jdsc/settings_save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(window.__jdsc_settings_cache)
-        });
-        return;
-      }
-      localStorage.setItem(key, JSON.stringify(val));
+      const notification = document.createElement('div');
+      notification.textContent = '✗ 工作流+配置保存失败，已恢复服务器状态';
+      notification.style.cssText = 'position:fixed;top:20px;right:20px;background:#ff4d4f;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
+      document.body.appendChild(notification);
+      setTimeout(() => notification.remove(), 3500);
     } catch { }
+  }
+
+  async function restoreWorkflowState(key) {
+    if (key === KEY_WF_FOLDERS) await syncFoldersFromServer();
+    else if (key === KEY_WF_FAVS) await syncFavsFromServer();
+    else if (key === KEY_WF_HISTORY) await syncHistoryFromServer();
+    else if (String(key || '').startsWith('jdsc:')) await syncSettingsFromServer();
+    if (typeof globalRefreshFn === 'function') globalRefreshFn();
+  }
+
+  function queueWorkflowStateWrite(key, endpoint, payload) {
+    const requestBody = JSON.stringify(payload);
+    const queued = enqueueWorkflowStateWrite(key, async () => {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+      });
+      let result = null;
+      try { result = await res.json(); } catch { }
+      if (!res?.ok || !result?.ok) {
+        throw new Error(result?.error || `HTTP ${res?.status || 'unknown'}`);
+      }
+      return result;
+    });
+    queued.catch(async (error) => {
+      showWorkflowPersistenceError(error);
+      await restoreWorkflowState(key);
+    });
+    return queued;
+  }
+
+  function saveWF(key, val) {
+    if (key === KEY_WF_FOLDERS) {
+      WF_FOLDERS_CACHE = Array.isArray(val) ? val : [];
+      return queueWorkflowStateWrite(key, '/jdsc/workflow_folders_save', WF_FOLDERS_CACHE);
+    }
+    if (key === KEY_WF_FAVS) {
+      WF_FAVS_CACHE = (val && typeof val === 'object') ? val : {};
+      return queueWorkflowStateWrite(key, '/jdsc/workflow_favorites_save', WF_FAVS_CACHE);
+    }
+    if (key === KEY_WF_HISTORY) {
+      WF_HISTORY_CACHE = Array.isArray(val) ? val : [];
+      return queueWorkflowStateWrite(key, '/jdsc/workflow_history_save', WF_HISTORY_CACHE);
+    }
+    if (String(key || '').startsWith('jdsc:')) {
+      window.__jdsc_settings_cache = window.__jdsc_settings_cache || {};
+      window.__jdsc_settings_cache[key] = val;
+      return queueWorkflowStateWrite(key, '/jdsc/settings_save', window.__jdsc_settings_cache);
+    }
+    localStorage.setItem(key, JSON.stringify(val));
+    return Promise.resolve();
   }
 
   function getFolders() {
@@ -229,29 +410,33 @@
 
   // 保存历史记录
   function saveWFHistory(list) {
-    if (list.length > 50) list = list.slice(0, 50); // 限制最大50条
-    saveWF(KEY_WF_HISTORY, list);
+    return saveWF(KEY_WF_HISTORY, Array.isArray(list) ? list.slice(0, 200) : []);
   }
 
-  // 添加到历史记录
-  function addToWFHistory(name, path, method = 'jdsc') {
+  // 添加到历史记录。path 始终是可重开的默认或暂存副本，绝不伪造原生导入路径。
+  async function addToWFHistory(name, path, method = 'jdsc', meta = {}) {
     try {
-      let hist = getWFHistory();
-      // 移除重复项（基于路径或名称）
-      hist = hist.filter(h => {
-        if (path && h.path === path) return false;
-        if (!path && h.name === name) return false;
-        return true;
+      await ensureHistoryLoaded();
+      const entry = makeHistoryEntry({
+        name,
+        path,
+        method,
+        storage: meta.storage || (path ? 'default' : 'unknown'),
+        sourceType: meta.sourceType || 'workflow_file',
+        sourceName: meta.sourceName || '',
+        sourcePath: meta.sourcePath || null,
+        stageId: meta.stageId || '',
       });
-      // 添加到头部
-      hist.unshift({
-        name: name,
-        path: path,
-        time: Date.now(),
-        method: method
-      });
-      saveWFHistory(hist);
-    } catch (e) { console.error(e); }
+      const persisted = saveWFHistory(upsertHistoryEntry(getWFHistory(), entry, { limit: 200 }));
+      // Update immediately from the optimistic cache, then refresh again after disk persistence.
+      if (typeof globalRefreshFn === 'function') globalRefreshFn();
+      // Refresh the visible history tab after the queued server write completes.
+      // Previously it only refreshed on tab hover, so new imports stayed invisible.
+      persisted.then(() => {
+        if (typeof globalRefreshFn === 'function') globalRefreshFn();
+      }).catch(() => { /* saveWF already restores server state and shows the error */ });
+      return persisted;
+    } catch (e) { console.error(e); return Promise.reject(e); }
   }
 
   function getWFHotkey() {
@@ -413,6 +598,12 @@
       .jdsc-wf-history-item{ padding-left: 14px !important; }
       .jdsc-wf-history-item .jdsc-wf-fav-name{ height: auto !important; -webkit-line-clamp: 1 !important; }
       .jdsc-wf-history-item .jdsc-wf-fav-path{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+      .jdsc-wf-history-item.jdsc-wf-history-staged{ border-left:3px solid #38bdf8; background:rgba(56,189,248,.08); }
+      .jdsc-wf-history-item.jdsc-wf-history-favorite{ border-left:3px solid #fbbf24; background:rgba(251,191,36,.08); }
+      .jdsc-wf-history-item.jdsc-wf-history-staged.jdsc-wf-history-favorite{ border-left-color:#c084fc; background:linear-gradient(90deg,rgba(56,189,248,.10),rgba(251,191,36,.08)); }
+      .jdsc-wf-history-badge{ display:inline-flex; align-items:center; margin-left:7px; padding:1px 6px; border-radius:9px; font-size:11px; line-height:16px; vertical-align:1px; font-weight:600; }
+      .jdsc-wf-history-badge.staged{ color:#7dd3fc; background:rgba(56,189,248,.16); border:1px solid rgba(56,189,248,.34); }
+      .jdsc-wf-history-badge.favorite{ color:#fde68a; background:rgba(251,191,36,.16); border:1px solid rgba(251,191,36,.34); }
       .jdsc-wf-noselect, .jdsc-wf-noselect * { user-select: none; }
       .jdsc-wf-drag-ghost{ position:fixed; left:0; top:0; z-index:10001; background:#2e343a; color:#e6e9ec; border-radius:8px; box-shadow:0 12px 32px rgba(0,0,0,0.4); opacity:.95; pointer-events:none; border:1px solid #4a5159; }
       .jdsc-wf-drag-placeholder{ border:2px dashed #1677ff; border-radius:8px; box-sizing:border-box; background:rgba(22,119,255,0.05); margin:8px 0; }
@@ -495,6 +686,134 @@
     }
   }
 
+  async function waitForStableWorkflowRevision(filePath, { samples = 3, interval = 300, maxWait = 3600 } = {}) {
+    let previous = '';
+    let stableCount = 0;
+    const started = Date.now();
+    while (Date.now() - started < maxWait) {
+      const loaded = await loadWorkflowContent(filePath);
+      const revision = loaded?.revision || '';
+      if (revision && revision === previous) {
+        stableCount += 1;
+        if (stableCount >= samples - 1) return revision;
+      } else {
+        previous = revision;
+        stableCount = 0;
+      }
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+    return previous;
+  }
+
+  async function stageWorkflowContent(content, displayName, sourceType = 'workflow_file') {
+    const res = await fetch('/jdsc/workflow_stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, display_name: displayName, source_type: sourceType }),
+    });
+    let result = null;
+    try { result = await res.json(); } catch { }
+    if (!res?.ok || !result?.success) {
+      const error = new Error(result?.error || `暂存失败: HTTP ${res?.status || 'unknown'}`);
+      error.code = result?.code || 'workflow_stage_failed';
+      throw error;
+    }
+    return result;
+  }
+
+  async function resolveNativeWorkflowImport(content) {
+    const res = await fetch('/jdsc/workflow_resolve_native_import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    const result = await res.json();
+    if (!res.ok || !result?.success) throw new Error(result?.error || '无法识别拖入工作流');
+    return result;
+  }
+
+  async function prepareNativeJsonImport(content, name) {
+    const resolution = await resolveNativeWorkflowImport(content);
+    if (resolution.status === 'default_unique') {
+      return { path: resolution.path, revision: resolution.revision, storage: 'default', stage_id: '' };
+    }
+    if (resolution.status === 'ambiguous') {
+      const error = new Error('默认工作流目录中存在多个内容完全相同的工作流，请用工作流+面板选择文件打开。');
+      error.code = 'ambiguous_default_workflow';
+      throw error;
+    }
+    const staged = await stageWorkflowContent(content, name, 'workflow_file');
+    return { ...staged, storage: 'staged' };
+  }
+
+  async function promoteStagedWorkflow(binding, targetName) {
+    const res = await fetch('/jdsc/workflow_stage_promote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stage_path: binding.path,
+        target_name: targetName,
+        expected_revision: binding.revision,
+      }),
+    });
+    let result = null;
+    try { result = await res.json(); } catch { }
+    if (!res?.ok || !result?.success) {
+      const error = new Error(result?.error || `移动失败: HTTP ${res?.status || 'unknown'}`);
+      error.code = result?.code || 'workflow_promote_failed';
+      throw error;
+    }
+    return result;
+  }
+
+  let pendingCanvasStageTimer = null;
+  async function stageCurrentUnboundCanvas(sourceType = 'canvas_import') {
+    try {
+      if (getVerifiedActiveWorkflowBinding() || !window.app?.graph) return;
+      const graph = window.app.graph;
+      const workflowData = stripLegacySessionFromSerializedWorkflow(graph.serialize());
+      if (!workflowData || !Array.isArray(workflowData.nodes)) return;
+      const displayName = getCurrentWorkflowDisplayName() || '画布导入工作流';
+      const staged = await stageWorkflowContent(JSON.stringify(workflowData, null, 2), displayName);
+      const sessionId = makeWorkflowSessionId();
+      bindCurrentWorkflow(staged.path, displayName, {
+        sessionId, revision: staged.revision, storage: 'staged', sourceType,
+        sourceName: displayName, stageId: staged.stage_id || '',
+      });
+      addToWFHistory(displayName, staged.path, sourceType, {
+        storage: 'staged', sourceType, sourceName: displayName, stageId: staged.stage_id || '',
+      });
+    } catch (error) {
+      console.error('[工作流+] 画布导入暂存失败:', error);
+    }
+  }
+
+  function restoreRememberedStagedBinding() {
+    const activeWorkflow = getActiveWorkflowInstance();
+    const remembered = workflowKeyBindings.get(currentWorkflowKey(activeWorkflow));
+    if (!remembered || remembered.storage !== 'staged') return false;
+    bindCurrentWorkflow(remembered.path, remembered.nameNoExt, {
+      sessionId: remembered.sessionId,
+      revision: remembered.revision,
+      storage: remembered.storage,
+      sourceType: remembered.sourceType,
+      sourceName: remembered.sourceName,
+      sourcePath: remembered.sourcePath,
+      stageId: remembered.stageId,
+    });
+    return true;
+  }
+
+  function scheduleCanvasImportStage(sourceType = 'canvas_import') {
+    if (window.__jdsc_loading_flag || getVerifiedActiveWorkflowBinding()) return;
+    if (restoreRememberedStagedBinding()) return;
+    if (pendingCanvasStageTimer) clearTimeout(pendingCanvasStageTimer);
+    pendingCanvasStageTimer = setTimeout(() => {
+      pendingCanvasStageTimer = null;
+      stageCurrentUnboundCanvas(sourceType);
+    }, 180);
+  }
+
   async function getWorkflowList(folderPath) {
     try {
       const res = await fetch('/jdsc/workflow_list', {
@@ -517,6 +836,134 @@
 
   // 记住当前打开的工作流信息 (仅用于当前操作上下文，不用于保存判定)
   let currentWorkflowInfo = null;
+  const workflowBindings = window.__whtools_workflow_bindings || new WeakMap();
+  window.__whtools_workflow_bindings = workflowBindings;
+  const nativeAutosaveGuards = window.__whtools_native_autosave_guards || new WeakMap();
+  window.__whtools_native_autosave_guards = nativeAutosaveGuards;
+  const ACTIVE_BINDING_SESSION_KEY = 'whtools:active_workflow_binding:v1';
+  const workflowKeyBindings = window.__whtools_workflow_key_bindings || new Map();
+  window.__whtools_workflow_key_bindings = workflowKeyBindings;
+
+  function currentWorkflowKey(activeWorkflow = getActiveWorkflowInstance()) {
+    return String(activeWorkflow?.key || activeWorkflow?.path || '');
+  }
+
+  function persistActiveWorkflowBinding(binding) {
+    try {
+      const persisted = {
+        path: binding.path,
+        nameNoExt: binding.nameNoExt,
+        sessionId: binding.sessionId,
+        workflowKey: binding.workflowKey,
+        revision: binding.revision || '',
+        storage: binding.storage || 'default',
+        sourceType: binding.sourceType || 'workflow_file',
+        sourceName: binding.sourceName || '',
+        sourcePath: binding.sourcePath || null,
+        stageId: binding.stageId || '',
+      };
+      sessionStorage.setItem(ACTIVE_BINDING_SESSION_KEY, JSON.stringify(persisted));
+    } catch { }
+  }
+
+  function forgetPersistedActiveWorkflowBinding() {
+    try { sessionStorage.removeItem(ACTIVE_BINDING_SESSION_KEY); } catch { }
+  }
+
+  function getActiveWorkflowStore() {
+    return window.app?.extensionManager?.workflow || null;
+  }
+
+  function getActiveWorkflowInstance() {
+    return getActiveWorkflowStore()?.activeWorkflow || null;
+  }
+
+  function suppressNativeAutosaveForCurrentBinding(activeWorkflow = getActiveWorkflowInstance()) {
+    if (!activeWorkflow) return false;
+    if (nativeAutosaveGuards.has(activeWorkflow)) return true;
+    const token = suppressNativeAutosaveForManagedWorkflow(activeWorkflow);
+    if (!token) return false;
+    nativeAutosaveGuards.set(activeWorkflow, token);
+    console.info('[工作流+] 已隔离该工作流的 ComfyUI 原生 AutoSave，保存由工作流+统一处理');
+    return true;
+  }
+
+  function restoreNativeAutosaveForCurrentBinding(activeWorkflow = getActiveWorkflowInstance()) {
+    const token = activeWorkflow ? nativeAutosaveGuards.get(activeWorkflow) : null;
+    if (!token) return false;
+    const restored = restoreNativeAutosaveForManagedWorkflow(activeWorkflow, token);
+    if (restored) nativeAutosaveGuards.delete(activeWorkflow);
+    return restored;
+  }
+
+  function normalizeWorkflowPath(filePath) {
+    return String(filePath || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+  }
+
+  function makeWorkflowSessionId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+
+  function clearCurrentWorkflowBinding(graph = window.app?.graph, activeWorkflow = getActiveWorkflowInstance()) {
+    restoreNativeAutosaveForCurrentBinding(activeWorkflow);
+    forgetPersistedActiveWorkflowBinding();
+    if (activeWorkflow) workflowBindings.delete(activeWorkflow);
+    currentWorkflowInfo = null;
+    window.__jdsc_active_save_path = null;
+    window.__jdsc_active_display_name = null;
+    if (graph) {
+      graph.jdsc_path = null;
+      graph.jdsc_name = null;
+      delete graph.__jdsc_session_id;
+      if (graph.extra) delete graph.extra.jdsc_session_id;
+    }
+  }
+
+  function getVerifiedActiveWorkflowBinding() {
+    const graph = window.app?.graph;
+    const activeWorkflow = getActiveWorkflowInstance();
+    if (!graph || !activeWorkflow) return null;
+
+    let binding = workflowBindings.get(activeWorkflow);
+    if (!binding) {
+      const remembered = workflowKeyBindings.get(currentWorkflowKey(activeWorkflow));
+      if (remembered) {
+        binding = { ...remembered, workflow: activeWorkflow, workflowKey: currentWorkflowKey(activeWorkflow) };
+        workflowBindings.set(activeWorkflow, binding);
+      }
+    }
+    if (!binding) return null;
+    const result = bindingMatchesActive({
+      binding,
+      active: {
+        workflow: activeWorkflow,
+        workflowKey: String(activeWorkflow.key || activeWorkflow.path || ""),
+        displayName: getCurrentWorkflowDisplayName(),
+      },
+      graph,
+    });
+    if (!result.ok) {
+      console.warn('[工作流+] 已撤销过期保存绑定:', result.reason);
+      clearCurrentWorkflowBinding(graph, activeWorkflow);
+      return null;
+    }
+
+    return {
+      path: binding.path,
+      nameNoExt: binding.nameNoExt,
+      sessionId: binding.sessionId,
+      revision: binding.revision || "",
+      storage: binding.storage || "default",
+      sourceType: binding.sourceType || "workflow_file",
+      sourceName: binding.sourceName || "",
+      sourcePath: binding.sourcePath || null,
+      stageId: binding.stageId || "",
+      workflow: activeWorkflow,
+    };
+  }
 
   function cleanWorkflowName(name) {
     const baseName = String(name || "").trim().split(/[\\\/]/).pop();
@@ -532,9 +979,20 @@
     return cleanWorkflowName(String(filePath || "").split(/[\\\/]/).pop());
   }
 
-  function bindCurrentWorkflow(filePath, nameNoExt) {
+  function bindCurrentWorkflow(filePath, nameNoExt, options = {}) {
     const cleanName = cleanWorkflowName(nameNoExt) || workflowNameFromPath(filePath);
     if (!filePath || !cleanName) return;
+
+    const graph = window.app?.graph;
+    let sessionId = options.sessionId || "";
+    if (!sessionId && options.reuseSession) sessionId = graph?.__jdsc_session_id || "";
+    if (!sessionId && options.createSession) sessionId = makeWorkflowSessionId();
+    if (sessionId) {
+      if (graph) {
+        graph.__jdsc_session_id = String(sessionId);
+        if (graph.extra) delete graph.extra.jdsc_session_id;
+      }
+    }
 
     currentWorkflowInfo = {
       path: filePath,
@@ -542,12 +1000,67 @@
       nameNoExt: cleanName
     };
 
-    if (window.app && window.app.graph) {
-      window.app.graph.jdsc_path = filePath;
-      window.app.graph.jdsc_name = cleanName;
+    if (graph) {
+      graph.jdsc_path = filePath;
+      graph.jdsc_name = cleanName;
+    }
+
+    const activeWorkflow = getActiveWorkflowInstance();
+    if (activeWorkflow && sessionId) {
+      const previous = workflowBindings.get(activeWorkflow);
+      const nextBinding = {
+        path: filePath,
+        nameNoExt: cleanName,
+        sessionId: String(sessionId),
+        workflowKey: String(activeWorkflow.key || activeWorkflow.path || ""),
+        workflow: activeWorkflow,
+        revision: options.revision ?? previous?.revision ?? "",
+        storage: options.storage ?? previous?.storage ?? "default",
+        sourceType: options.sourceType ?? previous?.sourceType ?? "workflow_file",
+        sourceName: options.sourceName ?? previous?.sourceName ?? "",
+        sourcePath: options.sourcePath ?? previous?.sourcePath ?? null,
+        stageId: options.stageId ?? previous?.stageId ?? "",
+      };
+      workflowBindings.set(activeWorkflow, nextBinding);
+      if (nextBinding.workflowKey) workflowKeyBindings.set(nextBinding.workflowKey, nextBinding);
+      suppressNativeAutosaveForCurrentBinding(activeWorkflow);
+      persistActiveWorkflowBinding(nextBinding);
     }
 
     updateWorkflowTitle(cleanName, filePath);
+  }
+
+  function restorePersistedActiveWorkflowBinding(attemptsLeft = 30) {
+    let stored;
+    try {
+      const raw = sessionStorage.getItem(ACTIVE_BINDING_SESSION_KEY);
+      stored = raw ? JSON.parse(raw) : null;
+    } catch {
+      stored = null;
+    }
+    if (!stored?.path || !stored?.sessionId || !stored?.workflowKey) return;
+
+    const activeWorkflow = getActiveWorkflowInstance();
+    const graph = window.app?.graph;
+    if (!activeWorkflow || !graph || !currentWorkflowKey(activeWorkflow)) {
+      if (attemptsLeft > 0) setTimeout(() => restorePersistedActiveWorkflowBinding(attemptsLeft - 1), 100);
+      return;
+    }
+    if (currentWorkflowKey(activeWorkflow) !== String(stored.workflowKey)) {
+      forgetPersistedActiveWorkflowBinding();
+      return;
+    }
+
+    bindCurrentWorkflow(stored.path, stored.nameNoExt || workflowNameFromPath(stored.path), {
+      sessionId: stored.sessionId,
+      revision: stored.revision || '',
+      storage: stored.storage || 'default',
+      sourceType: stored.sourceType || 'workflow_file',
+      sourceName: stored.sourceName || '',
+      sourcePath: stored.sourcePath || null,
+      stageId: stored.stageId || '',
+    });
+    console.info('[工作流+] 已恢复刷新前的保存绑定与原生 AutoSave 隔离');
   }
 
   function getCurrentWorkflowDisplayName() {
@@ -589,7 +1102,7 @@
 
     for (const value of values) {
       const name = cleanWorkflowName(value);
-      if (name && name !== "工作流+" && !/^unsaved$/i.test(name)) return name;
+      if (name && name !== "工作流+" && name !== "..." && name !== "…" && !/^unsaved$/i.test(name)) return name;
     }
     return "";
   }
@@ -692,10 +1205,25 @@
         filePath = loaded.path;
       }
       const content = loaded.content;
+      let openedStorage = loaded.storage_class || "default";
+      let sourcePath = null;
+      let stageId = "";
+      if (openedStorage === "external") {
+        sourcePath = filePath;
+        const staged = await stageWorkflowContent(
+          JSON.stringify(content, null, 2),
+          fileName
+        );
+        filePath = staged.path;
+        loaded.revision = staged.revision;
+        openedStorage = "staged";
+        stageId = staged.stage_id || "";
+      }
 
       let workflow;
       try {
         workflow = typeof content === 'string' ? JSON.parse(content) : content;
+        stripLegacySessionFromSerializedWorkflow(workflow);
         // 记住工作流信息（用于后续保存）
         currentWorkflowInfo = {
           path: filePath,
@@ -709,27 +1237,9 @@
         return;
       }
 
-      // === Session 绑定逻辑 (提前执行) ===
-      // 生成唯一会话ID，用于在多标签切换/重载时识别该工作流实例
-      const sessionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
-
-      // 初始化会话映射表
-      if (!window.__jdsc_session_map) {
-        window.__jdsc_session_map = new Map();
-      }
-      // 记录 SessionID -> 路径信息
-      window.__jdsc_session_map.set(sessionId, {
-        path: filePath,
-        name: fileNameNoExt
-      });
-      console.log('[工作流+] 已预注册 SessionID:', sessionId);
-
-      // 关键：将 SessionID 注入到 workflow 数据中
-      // 这样 handleFile 加载时，configure 钩子就能直接从 data.extra 中读到 ID 并恢复路径
-      if (workflow && typeof workflow === 'object') {
-        if (!workflow.extra) workflow.extra = {};
-        workflow.extra.jdsc_session_id = sessionId;
-      }
+      // Session IDs are runtime-only. Persisting them into workflow JSON makes
+      // a manually copied B.json impersonate the original A.json.
+      const sessionId = makeWorkflowSessionId();
 
       // 方案A：优先使用 ComfyUI 原生的文件打开流程
       // 思路：把 JSON 内容伪装成一个浏览器 File 对象，交给 app.handleFile
@@ -737,12 +1247,11 @@
       let usedHandleFile = false;
       try {
         if (window.app && typeof window.app.handleFile === 'function') {
-          // 注意：这里使用已经注入了 SessionID 的 workflow 对象
           const raw = JSON.stringify(workflow);
           const blob = new Blob([raw], { type: 'application/json' });
           const file = new File([blob], fileName, { type: 'application/json' });
 
-          // 设置 flag 防止 configure 钩子误判（虽然有 SessionID 恢复机制，但双重保险更好）
+          // Tell the external-load guard this is our own open operation.
           window.__jdsc_loading_flag = true;
           try {
             await window.app.handleFile(file);
@@ -769,16 +1278,32 @@
         console.log('[工作流+] ✓ 工作流已加载（回退渲染）');
       }
 
-      // 再次确认绑定（防止 handleFile 过程中某些意外重置）
-      if (window.app && window.app.graph) {
-        window.app.graph.jdsc_path = filePath;
-        window.app.graph.jdsc_name = fileNameNoExt;
-        if (!window.app.graph.extra) window.app.graph.extra = {};
-        window.app.graph.extra.jdsc_session_id = sessionId;
+      // ComfyUI may normalize/persist the imported graph while opening it.
+      // Refresh raw-byte revision after that path so the first Ctrl+S is not stale.
+      try {
+        const stableRevision = await waitForStableWorkflowRevision(filePath);
+        if (stableRevision) loaded.revision = stableRevision;
+      } catch (error) {
+        console.warn('[工作流+] 等待工作流版本稳定失败，保留加载版本:', error);
       }
+      bindCurrentWorkflow(filePath, fileNameNoExt, {
+        sessionId,
+        revision: loaded.revision || "",
+        storage: openedStorage,
+        sourceType: openedStorage === "staged" ? "workflow_file" : "workflow_file",
+        sourceName: openedStorage === "staged" ? fileName : "",
+        sourcePath,
+        stageId,
+      });
 
       // 添加到历史记录
-      addToWFHistory(fileNameNoExt, filePath, 'jdsc');
+      addToWFHistory(fileNameNoExt, filePath, 'jdsc', {
+        storage: openedStorage,
+        sourceType: "workflow_file",
+        sourceName: openedStorage === "staged" ? fileName : "",
+        sourcePath,
+        stageId,
+      });
 
       // 记住工作流信息（用于后续保存）
       currentWorkflowInfo = {
@@ -794,33 +1319,70 @@
     }
   }
 
+  async function reconcileNativeAutosaveRevision(filePath, workflowData, binding) {
+    if (!binding) return null;
+    try {
+      const loaded = await loadWorkflowContent(filePath);
+      const revision = reconcileAutosavedWorkflowRevision({
+        expectedRevision: binding.revision || '',
+        diskRevision: loaded?.revision || '',
+        diskWorkflow: loaded?.content,
+        currentWorkflow: workflowData,
+      });
+      if (!revision) return null;
+      bindCurrentWorkflow(filePath, binding.nameNoExt || workflowNameFromPath(filePath), {
+        sessionId: binding.sessionId || '',
+        revision,
+      });
+      console.info('[工作流+] 原生自动保存已落盘，已同步版本:', filePath);
+      return { success: true, revision, already_saved: true };
+    } catch (error) {
+      console.warn('[工作流+] 检查原生自动保存版本失败，继续正常保存:', error);
+      return null;
+    }
+  }
+
   // 保存工作流到指定路径
-  async function saveWorkflowToPath(filePath, workflowData) {
+  async function saveWorkflowToPath(filePath, workflowData, binding = null) {
     try {
       console.log('[工作流+] 正在保存到:', filePath);
+      stripLegacySessionFromSerializedWorkflow(workflowData);
+      const alreadySaved = await reconcileNativeAutosaveRevision(filePath, workflowData, binding);
+      if (alreadySaved) return alreadySaved;
       const res = await fetch('/jdsc/workflow_save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           path: filePath,
           content: JSON.stringify(workflowData, null, 2),
-          overwrite: true
+          overwrite: true,
+          expected_name: binding?.nameNoExt || "",
+          expected_revision: binding?.revision || ""
         })
       });
-      if (!res || !res.ok) {
-        throw new Error(`保存请求失败: HTTP ${res ? res.status : 'unknown'}`);
-      }
-
-      const result = await res.json();
-      if (!result.success) {
-        throw new Error(result.error || '保存失败');
+      let result = null;
+      try { result = await res.json(); } catch { }
+      if (!res || !res.ok || !result?.success) {
+        const error = new Error(result?.error || `保存请求失败: HTTP ${res ? res.status : 'unknown'}`);
+        error.code = result?.code || "workflow_save_failed";
+        // A native auto-save can land in the small interval after the preflight
+        // and before this write. Accept it only when the exact submitted graph is
+        // already on disk; all genuinely different disk content remains a conflict.
+        if (error.code === 'workflow_revision_conflict') {
+          const reconciled = await reconcileNativeAutosaveRevision(filePath, workflowData, binding);
+          if (reconciled) return reconciled;
+        }
+        throw error;
       }
 
       console.log('[工作流+] ✓ 保存成功:', filePath);
 
       // 更新标题（保存后可能标题又变成Unsaved了）
       const fileName = filePath.split(/[\\\/]/).pop().replace(/\.json$/i, '');
-      bindCurrentWorkflow(filePath, fileName);
+      bindCurrentWorkflow(filePath, fileName, {
+        sessionId: binding?.sessionId || "",
+        revision: result.revision || "",
+      });
 
       // 显示保存成功提示
       const notification = document.createElement('div');
@@ -828,6 +1390,7 @@
       notification.style.cssText = 'position:fixed;top:20px;right:20px;background:#52c41a;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
       document.body.appendChild(notification);
       setTimeout(() => notification.remove(), 2000);
+      return result;
     } catch (e) {
       console.error('[工作流+] 保存出错:', e);
       throw e;
@@ -858,16 +1421,22 @@
       return null;
     }
 
-    const workflowData = window.app.graph.serialize();
-    const saveOnce = async (overwrite) => {
+    const sessionId = makeWorkflowSessionId();
+    const workflowData = stripLegacySessionFromSerializedWorkflow(window.app.graph.serialize());
+    const saveOnce = async (overwrite, expectedRevision = "") => {
+      const payload = {
+        path,
+        content: JSON.stringify(workflowData, null, 2),
+        overwrite
+      };
+      if (overwrite) {
+        payload.expected_name = nameNoExt;
+        payload.expected_revision = expectedRevision;
+      }
       const res = await fetch('/jdsc/workflow_save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path,
-          content: JSON.stringify(workflowData, null, 2),
-          overwrite
-        })
+        body: JSON.stringify(payload)
       });
       let result = null;
       try { result = await res.json(); } catch { }
@@ -881,13 +1450,17 @@
         if (options && options.linkExisting) {
           const useExisting = confirm(`已存在同名工作流：\n${fileName}\n\n是否直接把这个已有文件加入流收藏？\n\n这不会覆盖文件。`);
           if (!useExisting) return null;
-          bindCurrentWorkflow(path, nameNoExt);
           addToWFHistory(nameNoExt, path, 'jdsc');
           return { path, nameNoExt, fileName, linkedExisting: true };
         }
         const overwrite = confirm(`已存在同名工作流：\n${fileName}\n\n是否用当前画布覆盖它？`);
         if (!overwrite) return null;
-        saved = await saveOnce(true);
+        const existing = await loadWorkflowContent(path);
+        if (!existing?.revision) {
+          alert("无法读取已有工作流版本，请重新打开工作流后再覆盖保存。");
+          return null;
+        }
+        saved = await saveOnce(true, existing.revision);
       }
     }
 
@@ -896,7 +1469,7 @@
       return null;
     }
 
-    bindCurrentWorkflow(path, nameNoExt);
+    bindCurrentWorkflow(path, nameNoExt, { sessionId, revision: saved.result?.revision || "" });
 
     if (typeof syncFoldersFromServer === 'function') {
       await syncFoldersFromServer();
@@ -1121,12 +1694,9 @@
       const name = rawName.trim();
       
       folders.push({ id: Date.now().toString(36), name, path, collapsed: false, builtin: false });
-      saveWF(KEY_WF_FOLDERS, folders);
+      await saveWF(KEY_WF_FOLDERS, folders);
+      await syncFoldersFromServer();
       refresh();
-      // 主动触发同步到后端
-      if (typeof syncFoldersFromServer === 'function') {
-         syncFoldersFromServer();
-      }
     };
     searchBar.appendChild(searchContainer);
     searchBar.appendChild(addFolderBtn);
@@ -1180,7 +1750,6 @@
             path = matched.path;
             nameNoExt = matched.nameNoExt;
             fileName = matched.fileName;
-            bindCurrentWorkflow(path, nameNoExt);
             console.log('[收藏] 检测到原生另存为后的新文件，已改用:', path);
           } else {
             console.warn('[收藏] 当前标签名与工作流+绑定不一致，已丢弃旧绑定:', { displayName, boundName, path });
@@ -1196,7 +1765,6 @@
             path = matched.path;
             nameNoExt = matched.nameNoExt;
             fileName = matched.fileName;
-            bindCurrentWorkflow(path, nameNoExt);
             console.log('[收藏] 已按当前标签名匹配到现有工作流:', path);
           }
         }
@@ -1539,21 +2107,21 @@
           folderHeader.appendChild(folderName);
           if (!folder.builtin) {
             const delBtn = createEl("button", "jdsc-wf-btn jdsc-wf-btn-delete", "✕");
-            delBtn.onclick = (e) => {
+            delBtn.onclick = async (e) => {
               e.stopPropagation();
               if (confirm(`确认删除文件夹"${folder.name}"？\n（不会删除实际文件）`)) {
                 const folders = getFolders();
                 const idx = folders.findIndex(f => f.id === folder.id);
                 if (idx !== -1) {
                   folders.splice(idx, 1);
-                  saveWF(KEY_WF_FOLDERS, folders);
+                  await saveWF(KEY_WF_FOLDERS, folders);
                   refresh();
                 }
               }
             };
             folderHeader.appendChild(delBtn);
           }
-          folderHeader.onclick = () => {
+          folderHeader.onclick = async () => {
             folder.collapsed = !folder.collapsed;
 
             // 获取原始文件夹列表（包括默认文件夹）
@@ -1565,7 +2133,7 @@
               targetFolder.collapsed = folder.collapsed;
             }
 
-            saveWF(KEY_WF_FOLDERS, allFolders);
+            await saveWF(KEY_WF_FOLDERS, allFolders);
             refresh();
           };
           folderDiv.appendChild(folderHeader);
@@ -1644,14 +2212,22 @@
         if (filtered.length === 0) {
           body.appendChild(createEl("div", "jdsc-wf-empty", searchKw ? "无匹配的历史" : "暂无历史记录"));
         } else {
+          const historyFavorites = getWFFavs();
           for (const item of filtered) {
             const row = createEl("div", "jdsc-wf-fav-item jdsc-wf-history-item");
             const hasPath = !!item.path;
-            const icon = hasPath ? "📄" : "📝";
+            const classification = classifyHistoryEntry(item, historyFavorites);
+            if (classification.storage === 'staged') row.classList.add('jdsc-wf-history-staged');
+            if (classification.favorite) row.classList.add('jdsc-wf-history-favorite');
+            const icon = classification.storage === 'staged' ? "⏳" : (classification.favorite ? "⭐" : (hasPath ? "📄" : "📝"));
             const itemName = createEl("div", "jdsc-wf-fav-name", `${icon} ${item.name}`);
+            if (classification.storage === 'staged') itemName.appendChild(createEl('span', 'jdsc-wf-history-badge staged', '临时'));
+            if (classification.favorite) itemName.appendChild(createEl('span', 'jdsc-wf-history-badge favorite', '已收藏'));
             if (!hasPath) itemName.title = "外部导入记录，仅记录名称和时间";
             const timeStr = new Date(item.time).toLocaleString();
-            const sourceText = hasPath ? "工作流+打开" : "外部导入";
+            const sourceText = classification.storage === 'staged'
+              ? "临时工作流"
+              : (classification.favorite ? "已收藏工作流" : (hasPath ? "工作流+打开" : "外部导入"));
             const timeDiv = createEl("div", "jdsc-wf-fav-original", `${sourceText} · ${timeStr}`);
             const pathDiv = createEl("div", "jdsc-wf-fav-path", item.path || "未绑定路径 · 右键可将当前画布保存到工作流+");
 
@@ -1910,6 +2486,11 @@
       searchInput.placeholder = "搜索历史记录...";
       refresh();
     };
+    // Tabs were hover-only, which made click/touch users see stale history until
+    // they moved the pointer across another tab. Keep hover behavior and add clicks.
+    tabWorkflow.onclick = tabWorkflow.onmouseenter;
+    tabFavorites.onclick = tabFavorites.onmouseenter;
+    tabHistory.onclick = tabHistory.onmouseenter;
     syncSettingsFromServer().then(() => syncFoldersFromServer()).then(() => syncFavsFromServer()).then(() => syncHistoryFromServer()).then(() => refresh());
     document.body.appendChild(modal);
     return modal;
@@ -2026,49 +2607,42 @@
 
   // 【Ctrl+S 保存拦截功能】
   // 拦截 Ctrl+S，直接保存到原始路径
+  document.addEventListener('keyup', (e) => {
+    const key = String(e.key || '').toLowerCase();
+    if (key === 's' || key === 'control' || key === 'meta') {
+      workflowSaveKeyState.active = false;
+    }
+  }, true);
+
+  function shouldSkipWorkflowSaveShortcut(e) {
+    if (e.repeat || window.__whtools_workflow_saving || workflowSaveKeyState.active) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      return true;
+    }
+    workflowSaveKeyState.active = true;
+    return false;
+  }
+
+  function releaseWorkflowSaveShortcutLock(delay = 0) {
+    workflowSaveKeyState.cooldownUntil = 0;
+    setTimeout(() => {
+      if (!window.__whtools_workflow_saving) {
+        workflowSaveKeyState.active = false;
+      }
+    }, delay);
+  }
+
   document.addEventListener('keydown', async (e) => {
     // 只拦截 Ctrl+S (Windows/Linux) 或 Cmd+S (Mac)
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      const hasBoundWorkflow = !!(window.app && window.app.graph && window.app.graph.jdsc_path);
-      if (hasBoundWorkflow && (e.repeat || window.__whtools_workflow_saving)) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-        return;
-      }
+    if ((e.ctrlKey || e.metaKey) && String(e.key || '').toLowerCase() === 's') {
+      const binding = getVerifiedActiveWorkflowBinding();
+      const hasBoundWorkflow = !!binding;
+      if (hasBoundWorkflow && shouldSkipWorkflowSaveShortcut(e)) return;
       try {
-        // === 核心修改：只信任绑定在 Graph 对象上的路径 ===
-        // 任何 DOM 属性、全局变量、标签状态都不可靠
-        let savePath = null;
-        let saveName = null;
-
-        if (window.app && window.app.graph && window.app.graph.jdsc_path) {
-          savePath = window.app.graph.jdsc_path;
-          saveName = window.app.graph.jdsc_name || savePath.split(/[\\/]/).pop().replace(/\.json$/i, '');
-
-          // === 安全检查：文件名一致性验证 ===
-          // 尝试获取当前 UI 上的标签名，如果与绑定的 saveName 严重不符，则发出警告或阻止
-          try {
-            const activeTab = document.querySelector('.p-togglebutton-checked, .workflow-tab.active');
-            if (activeTab) {
-              const tabText = (activeTab.textContent || '').trim();
-              // 如果标签名存在，且与 saveName 不包含关系（宽松匹配），则警示
-              // 注意：tabText 可能是 "MyFlow (modified)" 或 "MyFlow.json"，所以用宽松匹配
-              if (tabText && saveName && !tabText.includes(saveName) && !saveName.includes(tabText)) {
-                console.warn(`[工作流+] 安全警告：当前标签名 "${tabText}" 与绑定文件名 "${saveName}" 不匹配！`);
-                // 这种情况下，极有可能是串台了，强制清除绑定并终止保存
-                window.app.graph.jdsc_path = null;
-                window.app.graph.jdsc_name = null;
-                savePath = null; // 终止拦截
-                console.error('[工作流+] 已自动终止保存拦截，防止误覆盖。');
-              }
-            }
-          } catch (e) { console.warn('安全检查异常', e); }
-
-          if (savePath) {
-            console.log('[工作流+] (Ctrl+S) 从 Graph 获取路径:', savePath);
-          }
-        }
+        const savePath = binding?.path || null;
+        const saveName = binding?.nameNoExt || null;
 
         // 如果存在保存路径，拦截默认保存行为
         if (savePath) {
@@ -2079,9 +2653,12 @@
 
           // === 3. 用户确认对话框 ===
           const confirmMsg = `即将保存工作流，请确认：\n\n文件名: ${saveName || '未知'}\n完整路径: ${savePath}\n\n这是您要保存的文件吗？`;
-          if (!confirm(confirmMsg)) {
+          // Staged workflows intentionally overwrite their single temporary file;
+          // they do not require a second path confirmation.
+          if (binding.storage !== 'staged' && !confirm(confirmMsg)) {
             console.log('[工作流+] 用户取消保存');
             window.__whtools_workflow_saving = false;
+            releaseWorkflowSaveShortcutLock();
             return;
           }
 
@@ -2097,10 +2674,20 @@
               throw new Error('无法获取工作流数据');
             }
 
-            const workflowData = window.app.graph.serialize();
+            const latestBinding = getVerifiedActiveWorkflowBinding();
+            if (!latestBinding || latestBinding.workflow !== binding.workflow ||
+                latestBinding.sessionId !== binding.sessionId ||
+                normalizeWorkflowPath(latestBinding.path) !== normalizeWorkflowPath(savePath)) {
+              throw new Error('当前工作流已切换，已取消覆盖保存');
+            }
+
+            if (String(window.app.graph.__jdsc_session_id || '') !== binding.sessionId) {
+              throw new Error('当前工作流身份已变化，已取消覆盖保存');
+            }
+            const workflowData = stripLegacySessionFromSerializedWorkflow(window.app.graph.serialize());
 
             // 保存到指定路径
-            await saveWorkflowToPath(savePath, workflowData);
+            await saveWorkflowToPath(savePath, workflowData, binding);
 
             // 移除蓝色通知
             setTimeout(() => notificationInfo.remove(), 500);
@@ -2113,7 +2700,9 @@
 
             // 显示红色错误通知
             const notificationError = document.createElement('div');
-            notificationError.textContent = '✗ 保存失败: ' + (err.message || '未知错误');
+            notificationError.textContent = err.code === 'workflow_revision_conflict'
+              ? '✗ 磁盘文件已被其他窗口修改，请重新加载或另存为'
+              : '✗ 保存失败: ' + (err.message || '未知错误');
             notificationError.style.cssText = 'position:fixed;top:20px;right:20px;background:#ff4d4f;color:#fff;padding:12px 20px;border-radius:4px;z-index:999999;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)';
             document.body.appendChild(notificationError);
             setTimeout(() => notificationError.remove(), 3000);
@@ -2121,56 +2710,87 @@
             console.error('[工作流+] ✗ Ctrl+S 拦截保存失败:', err);
           } finally {
             window.__whtools_workflow_saving = false;
+            releaseWorkflowSaveShortcutLock();
           }
         }
         // 如果没有保存路径，让默认保存行为继续执行
       } catch (e) {
         console.error('[工作流+] Ctrl+S 拦截出错:', e);
+        window.__whtools_workflow_saving = false;
+        releaseWorkflowSaveShortcutLock();
       }
     }
   }, true); // 使用捕获阶段，确保优先拦截
 
-  // Monkey Patch: 拦截原生 handleFile 以记录历史
+  // Native file imports have no trustworthy browser-visible absolute path.
+  // Stage them first so Ctrl+S never overwrites an unknown source file.
   if (window.app && typeof window.app.handleFile === 'function') {
     const originalHandleFile = window.app.handleFile;
     window.app.handleFile = async function (file) {
+      if (window.__jdsc_loading_flag) {
+        return await originalHandleFile.apply(this, arguments);
+      }
+      let passedToOriginal = false;
       try {
-        // 【BUG修复】原生加载文件时，必须清除之前记录的“工作流+”保存路径
-        // 否则 Ctrl+S 会覆盖掉之前打开的文件
-        currentWorkflowInfo = null;
-        window.__jdsc_active_save_path = null;
-        window.__jdsc_active_display_name = null;
-        if (window.app && window.app.graph) {
-          window.app.graph.jdsc_path = null;
-          window.app.graph.jdsc_name = null;
-        }
-        console.log('[工作流+] 原生加载文件，已清除保存路径绑定');
+        clearCurrentWorkflowBinding(window.app?.graph, getActiveWorkflowInstance());
+        const name = String(file?.name || '');
+        const lower = name.toLowerCase();
+        const isJson = lower.endsWith('.json');
+        const isImage = /\.(png|jpe?g|webp|bmp|gif)$/i.test(lower);
 
-        // 清除当前激活标签的绑定属性（防止从标签读取到旧路径）
-        try {
-          const activeTab = document.querySelector('.p-togglebutton-checked');
-          if (activeTab) {
-            activeTab.removeAttribute('data-jdsc-path');
-            activeTab.removeAttribute('data-jdsc-name');
-          }
-          // 同时也尝试清除可能存在的其他高亮样式的标签
-          const otherActive = document.querySelector('.workflow-label.active, .workflow-tab.active');
-          if (otherActive) {
-            otherActive.removeAttribute('data-jdsc-path');
-            otherActive.removeAttribute('data-jdsc-name');
-            if (otherActive.parentElement) {
-              otherActive.parentElement.removeAttribute('data-jdsc-path');
-              otherActive.parentElement.removeAttribute('data-jdsc-name');
-            }
-          }
-        } catch { }
-
-        if (file && file.name) {
-          const name = file.name.replace(/\.json$/i, '');
-          addToWFHistory(name, null, 'native');
+        if (isJson && typeof file?.text === 'function') {
+          const raw = await file.text();
+          const target = await prepareNativeJsonImport(raw, name);
+          const title = name.replace(/\.json$/i, '');
+          // ComfyUI's native handler may change location hash and never resolve its
+          // promise. Record the staged binding independently of that promise.
+          window.__jdsc_loading_flag = true;
+          const result = originalHandleFile.call(this, new File([raw], name, { type: 'application/json' }));
+          setTimeout(async () => {
+            window.__jdsc_loading_flag = false;
+            let revision = target.revision;
+            try { revision = await waitForStableWorkflowRevision(target.path) || revision; } catch { }
+            bindCurrentWorkflow(target.path, title, {
+              sessionId: makeWorkflowSessionId(), revision, storage: target.storage,
+              sourceType: 'workflow_file', sourceName: name, stageId: target.stage_id || '',
+            });
+            addToWFHistory(title, target.path, 'native_file', {
+              storage: target.storage, sourceType: 'workflow_file', sourceName: name, stageId: target.stage_id || '',
+            });
+          }, 350);
+          passedToOriginal = true;
+          return result;
         }
-      } catch { }
-      return await originalHandleFile.apply(this, arguments);
+
+        const result = await originalHandleFile.apply(this, arguments);
+        passedToOriginal = true;
+        if (isImage && window.app?.graph) {
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const staged = await stageWorkflowContent(
+            JSON.stringify(stripLegacySessionFromSerializedWorkflow(window.app.graph.serialize()), null, 2),
+            name || '未命名.png',
+            'image_drop',
+          );
+          const sessionId = makeWorkflowSessionId();
+          const title = name.replace(/\.[^.]+$/, '') || '未命名';
+          bindCurrentWorkflow(staged.path, title, {
+            sessionId, revision: staged.revision, storage: 'staged', sourceType: 'image_drop',
+            sourceName: name, stageId: staged.stage_id || '',
+          });
+          addToWFHistory(title, staged.path, 'image_drop', {
+            storage: 'staged', sourceType: 'image_drop', sourceName: name, stageId: staged.stage_id || '',
+          });
+        }
+        return result;
+      } catch (error) {
+        console.error('[工作流+] 原生导入暂存失败:', error);
+        if (error?.code === 'ambiguous_default_workflow') {
+          alert(error.message);
+          return;
+        }
+        if (!passedToOriginal) return await originalHandleFile.apply(this, arguments);
+        throw error;
+      }
     };
   }
 
@@ -2185,33 +2805,12 @@
       // 如果是本插件主动加载的，不做处理（openWorkflowInCanvas 会负责后续绑定）
       if (window.__jdsc_loading_flag) return ret;
 
-      // === 核心逻辑：尝试从 SessionID 恢复绑定 ===
-      // 当切换标签时，Graph 会被重建，但 extra 数据通常会被恢复
-      let restored = false;
-      if (this.extra && this.extra.jdsc_session_id) {
-        const sid = this.extra.jdsc_session_id;
-        if (window.__jdsc_session_map && window.__jdsc_session_map.has(sid)) {
-          const info = window.__jdsc_session_map.get(sid);
-          if (info) {
-            this.jdsc_path = info.path;
-            this.jdsc_name = info.name;
-            // console.log('[工作流+] 检测到会话恢复 (configure)，已还原路径:', info.path);
-            restored = true;
-          }
-        }
-      }
-
-      // 如果无法恢复（说明是外部新加载的文件，或者 Session 已过期），则强制清除绑定
-      if (!restored) {
-        // 只有当 this 是当前的 app.graph 时才打印日志
-        if (window.app && window.app.graph === this) {
-          // console.log('[工作流+] 检测到外部加载 (configure)，清除绑定');
-        }
-        this.jdsc_path = null;
-        this.jdsc_name = null;
-        // 同时也清除 extra 中的 session_id，防止污染
-        if (this.extra) delete this.extra.jdsc_session_id;
-      }
+      // Tab switches can rebuild the graph. Restore the known staged binding by
+      // the active workflow key before treating this configure as a new import.
+      if (restoreRememberedStagedBinding()) return ret;
+      // A persisted session ID is not a file identity: copied workflows retain
+      // it and must never be rebound to the original file path.
+      sanitizeExternalWorkflowGraph(this);
 
       return ret;
     };
@@ -2224,14 +2823,120 @@
         if (window.app && window.app.graph === this) {
           // console.log('[工作流+] 检测到 Graph 清空 (clear)，清除保存路径绑定');
         }
-        this.jdsc_path = null;
-        this.jdsc_name = null;
+        sanitizeExternalWorkflowGraph(this);
         // 【BUG修复】清空画布时，同步清除“备胎”信息，防止收藏时读取到上一个文件的信息
         currentWorkflowInfo = null;
       }
       return originalClear.apply(this, arguments);
     };
   }
+
+  function installStagedCloseGuard() {
+    const store = getActiveWorkflowStore();
+    if (!store || typeof store.closeWorkflow !== 'function' || store.__jdsc_staged_close_guard) return;
+    const originalCloseWorkflow = store.closeWorkflow;
+    store.__jdsc_staged_close_guard = true;
+    store.closeWorkflow = async function (...args) {
+      if (window.__jdsc_allow_staged_close) return await originalCloseWorkflow.apply(this, args);
+      const binding = getVerifiedActiveWorkflowBinding();
+      if (!binding || binding.storage !== 'staged') return await originalCloseWorkflow.apply(this, args);
+
+      const move = confirm('这是工作流+临时工作流。\n\n确定：保存当前画布并移动到默认工作流目录\n取消：选择是否保留在临时目录');
+      try {
+        const workflowData = stripLegacySessionFromSerializedWorkflow(window.app.graph.serialize());
+        if (move) {
+          const targetName = prompt('移动到默认工作流目录后的名称：', binding.nameNoExt);
+          if (!targetName || !targetName.trim()) return;
+          await saveWorkflowToPath(binding.path, workflowData, binding);
+          const promoted = await promoteStagedWorkflow(binding, targetName.trim());
+          bindCurrentWorkflow(promoted.path, targetName.trim(), {
+            sessionId: makeWorkflowSessionId(), revision: promoted.revision, storage: 'default',
+          });
+          addToWFHistory(targetName.trim(), promoted.path, 'stage_promote', { storage: 'default' });
+        } else {
+          const keep = confirm('确定保留在临时目录并关闭吗？\n取消将继续编辑。');
+          if (!keep) return;
+          await saveWorkflowToPath(binding.path, workflowData, binding);
+        }
+      } catch (error) {
+        alert('临时工作流关闭前保存失败：' + (error.message || '未知错误'));
+        return;
+      }
+      window.__jdsc_allow_staged_close = true;
+      try { return await originalCloseWorkflow.apply(this, args); }
+      finally { window.__jdsc_allow_staged_close = false; }
+    };
+  }
+
+  installStagedCloseGuard();
+
+  function installImportInterceptor() {
+    const current = window.app?.handleFile;
+    if (typeof current !== 'function' || String(current).includes('stageWorkflowContent')) return;
+    window.app.handleFile = async function (file) {
+      if (window.__jdsc_loading_flag) return await current.apply(this, arguments);
+      const name = String(file?.name || '');
+      const isJson = name.toLowerCase().endsWith('.json');
+      const isImage = /\.(png|jpe?g|webp|bmp|gif)$/i.test(name);
+      if (!isJson && !isImage) return await current.apply(this, arguments);
+      try {
+        if (isImage) {
+          const result = await current.apply(this, arguments);
+          await new Promise((resolve) => setTimeout(resolve, 220));
+          if (!window.app?.graph) return result;
+          const staged = await stageWorkflowContent(
+            JSON.stringify(stripLegacySessionFromSerializedWorkflow(window.app.graph.serialize()), null, 2),
+            name || '未命名.png',
+            'image_drop',
+          );
+          const title = name.replace(/\.[^.]+$/, '') || '未命名';
+          bindCurrentWorkflow(staged.path, title, {
+            sessionId: makeWorkflowSessionId(), revision: staged.revision, storage: 'staged',
+            sourceType: 'image_drop', sourceName: name, stageId: staged.stage_id || '',
+          });
+          addToWFHistory(title, staged.path, 'image_drop', {
+            storage: 'staged', sourceType: 'image_drop', sourceName: name, stageId: staged.stage_id || '',
+          });
+          return result;
+        }
+        if (typeof file?.text !== 'function') return await current.apply(this, arguments);
+        clearCurrentWorkflowBinding(window.app?.graph, getActiveWorkflowInstance());
+        const raw = await file.text();
+        const target = await prepareNativeJsonImport(raw, name);
+        const title = name.replace(/\.json$/i, '');
+        window.__jdsc_loading_flag = true;
+        const result = current.call(this, new File([raw], name, { type: 'application/json' }));
+        setTimeout(async () => {
+          window.__jdsc_loading_flag = false;
+          let revision = target.revision;
+          try { revision = await waitForStableWorkflowRevision(target.path) || revision; } catch { }
+          bindCurrentWorkflow(target.path, title, {
+            sessionId: makeWorkflowSessionId(), revision, storage: target.storage,
+            sourceType: 'workflow_file', sourceName: name, stageId: target.stage_id || '',
+          });
+          addToWFHistory(title, target.path, 'native_file', {
+            storage: target.storage, sourceType: 'workflow_file', sourceName: name, stageId: target.stage_id || '',
+          });
+        }, 350);
+        return result;
+      } catch (error) {
+        console.error('[工作流+] 导入工作流暂存失败:', error);
+        if (error?.code === 'ambiguous_default_workflow') {
+          alert(error.message);
+          return;
+        }
+        return await current.apply(this, arguments);
+      }
+    };
+  }
+
+  installImportInterceptor();
+  // Restore a same-tab workflow+ binding after a browser refresh only when the
+  // ComfyUI workflow key is identical; normal/native workflow changes never inherit it.
+  setTimeout(() => restorePersistedActiveWorkflowBinding(), 0);
+  // Other custom nodes may overwrite app.handleFile after they load; re-wrap only
+  // when that happens, never stack wrappers around our own handler.
+  setInterval(installImportInterceptor, 500);
 
   // Watchdog 替代方案：当用户从外部操作系统（如 Windows 资源管理器）操作完文件，切回浏览器时触发静默刷新
   window.addEventListener('focus', () => {
