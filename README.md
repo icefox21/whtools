@@ -6,6 +6,14 @@
 
 ## 📜 更新日志
 
+### [v0.6.2] - 2026-09-12
+**BUG 修复批次**
+*   **🔒 安全修复**：素材库 `save_media` 接口的 `subfolder` 参数增加真实路径 containment 校验，封堵 `../` 路径穿越（任意文件读取）漏洞。
+*   **🐛 Qwen-VL 反推**：`temperature / top_p / max_tokens / api_host / frame_count` 变化现在会正确触发重新执行，不再被种子缓存吞掉；反推缓存增加 64 条上限防内存无限增长；网关拉起脚本路径移出源码，改从 `data/gateway_config.json` 读取。
+*   **🐛 空Latent+/空Latent+Qwen**：空 latent 改为 CPU 分配（不再白白占用显存）；`orientation`（横屏/竖屏）现在真正参与尺寸计算。
+*   **🐛 简易运算**：修复链式比较（`1 < a < 5`）中间操作数不更新的错误。
+*   **🔤 名称修复**：修正历史遗留乱码节点名——`jdsc` 显示为「收藏+」、工作流管理节点显示为「工作流+」、「显示文本」新增规范名（保留旧键兼容既有工作流）。
+
 ### [v0.6.1] - 2026-09-12
 **精简：移除四个节点模块**
 *   **移除节点**：提示词随机生成器+ (WuhuoPromptRandomizer)、Z-Image 角色连续性套件（5 节点）、长文本分割转列表套件、LoRA 合并 (WuhuoLoraMerge / WuhuoLoraSimpleMerge)。

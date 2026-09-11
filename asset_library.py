@@ -511,7 +511,16 @@ def register_routes():
             
             if not os.path.exists(source_filepath):
                 return web.json_response({"success": False, "error": f"源文件不存在: {source_filepath}"})
-                
+
+            # 安全防线：解析真实路径后强制仍位于源目录内，杜绝 subfolder 携带 ../ 的路径穿越
+            try:
+                resolved_root = os.path.realpath(source_dir if not is_history else HISTORY_DIR)
+                resolved_source = os.path.realpath(source_filepath)
+                if os.path.commonpath([resolved_source, resolved_root]) != resolved_root:
+                    return web.json_response({"success": False, "error": "非法的源路径"})
+            except ValueError:
+                return web.json_response({"success": False, "error": "非法的源路径"})
+
             # 拷贝或剪切文件并处理重名
             target_filepath = os.path.join(target_path, filename)
             if os.path.exists(target_filepath):

@@ -25,9 +25,20 @@ def _compute_tensor_fingerprint(tensor):
     sample = tensor.detach().reshape(-1)[::step].cpu().numpy()
     return f"{shape}_{hashlib.md5(sample.tobytes()).hexdigest()[:16]}"
 
-# 全局提示词反推缓存 (用于种子固定或相同输入时秒级复用)
+# 全局提示词反推缓存 (用于种子固定或相同输入时秒级复用)；上限防内存无限增长
 _PROMPT_CACHE = {}
+_PROMPT_CACHE_MAX = 64
 _LAST_GENERATED_RESULT = {}
+
+_GATEWAY_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gateway_config.json")
+
+def _gateway_starter():
+    """网关拉起脚本路径从 data/gateway_config.json 读取 (不硬编码进源码)。"""
+    try:
+        with open(_GATEWAY_CONFIG, "r", encoding="utf-8") as f:
+            return str((json.load(f) or {}).get("starter", "") or "")
+    except Exception:
+        return ""
 
 def ensure_gateway_running(host="http://127.0.0.1:8080"):
     for _ in range(2):
@@ -37,9 +48,9 @@ def ensure_gateway_running(host="http://127.0.0.1:8080"):
                 if res.status == 200:
                     return True
         except Exception:
-            vbs_path = r"O:\AI\runtime\start_gateway.vbs"
-            if os.path.exists(vbs_path):
-                subprocess.Popen(["wscript.exe", vbs_path])
+            starter = _gateway_starter()
+            if starter and os.path.exists(starter):
+                subprocess.Popen(["wscript.exe", starter])
             time.sleep(2.0)
     return False
 
@@ -282,10 +293,13 @@ class WuhuoQwenVLLocalFast:
     CATEGORY = "wuhuo"
 
     @classmethod
-    def IS_CHANGED(cls, preset="", seed=0, custom_prompt="", model=None, image=None, video=None, **kwargs):
+    def IS_CHANGED(cls, preset="", seed=0, custom_prompt="", model=None, image=None, video=None,
+                   temperature=0.1, top_p=0.9, max_tokens=4096, api_host="", frame_count=16, **kwargs):
+        # 采样参数变化必须触发重新执行，否则节点会永远复用上次输出
         img_fp = _compute_tensor_fingerprint(image) if image is not None else ""
         vid_fp = _compute_tensor_fingerprint(video) if video is not None else ""
-        return f"{preset}_{seed}_{custom_prompt}_{model}_{img_fp}_{vid_fp}"
+        return (f"{preset}_{seed}_{custom_prompt}_{model}_{temperature}_{top_p}_"
+                f"{max_tokens}_{api_host}_{frame_count}_{img_fp}_{vid_fp}")
 
     def generate(self, preset="喵呜套系写真专用 (8K多图分段)", image=None, video=None, custom_prompt="", frame_count=16, max_tokens=4096, temperature=0.1, top_p=0.9, api_host="http://127.0.0.1:8080", model=None, seed=0, unload_after_run=True, unique_id=None, **kwargs):
         node_key = str(unique_id) if unique_id is not None else "default"
@@ -294,7 +308,11 @@ class WuhuoQwenVLLocalFast:
         img_fp = _compute_tensor_fingerprint(image)
         vid_fp = _compute_tensor_fingerprint(video)
 
-        cache_key = (node_key, resolved_model, preset, user_input, seed, img_fp, vid_fp)
+        # 缓存键必须包含全部影响输出的参数，否则改温度/top_p/max_tokens 等会被旧结果吞掉
+        cache_key = (
+            node_key, resolved_model, preset, user_input, seed, img_fp, vid_fp,
+            float(temperature), float(top_p), int(max_tokens), str(api_host), int(frame_count),
+        )
         last_state = _LAST_GENERATED_RESULT.get(node_key)
 
         should_use_cache = False
@@ -314,6 +332,9 @@ class WuhuoQwenVLLocalFast:
             and last_state.get("user_input") == user_input
             and last_state.get("model") == resolved_model
             and last_state.get("reply")
+            and last_state.get("temperature") == float(temperature)
+            and last_state.get("top_p") == float(top_p)
+            and last_state.get("max_tokens") == int(max_tokens)
         ):
             should_use_cache = True
             cached_reply = last_state["reply"]
@@ -444,6 +465,8 @@ class WuhuoQwenVLLocalFast:
                         raise RuntimeError("Qwen returned an empty response.")
                     print("[QwenVL] direct content extracted (freeform prompt mode)", flush=True)
                 _PROMPT_CACHE[cache_key] = (reply, raw_trace)
+                while len(_PROMPT_CACHE) > _PROMPT_CACHE_MAX:
+                    _PROMPT_CACHE.pop(next(iter(_PROMPT_CACHE)))
                 _LAST_GENERATED_RESULT[node_key] = {
                     "seed": seed,
                     "preset": preset,
@@ -451,6 +474,9 @@ class WuhuoQwenVLLocalFast:
                     "model": resolved_model,
                     "img_fp": img_fp,
                     "vid_fp": vid_fp,
+                    "temperature": float(temperature),
+                    "top_p": float(top_p),
+                    "max_tokens": int(max_tokens),
                     "reply": reply,
                     "raw_trace": raw_trace,
                 }

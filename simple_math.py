@@ -124,11 +124,12 @@ class WuhuoSimpleMath:
                 left = eval_(node.left)
                 for op_node, comparator in zip(node.ops, node.comparators):
                     op_type = type(op_node)
-                    if op_type in operators:
-                        if not operators[op_type](left, eval_(comparator)):
-                            return 0
-                    else:
+                    if op_type not in operators:
                         return 0
+                    right = eval_(comparator)
+                    if not operators[op_type](left, right):
+                        return 0
+                    left = right  # 链式比较 (1 < a < 5) 需要滚动更新左操作数
                 return 1
             elif isinstance(node, ast.BoolOp):  # boolean logic operations (e.g. a and b)
                 if isinstance(node.op, ast.And):

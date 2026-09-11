@@ -44,7 +44,7 @@ class jdsc:
         return ()
 
 NODE_CLASS_MAPPINGS = {"jdsc": jdsc}
-NODE_DISPLAY_NAME_MAPPINGS = {"jdsc": "鏀惰棌+"}
+NODE_DISPLAY_NAME_MAPPINGS = {"jdsc": "收藏+"}
 
 WEB_DIRECTORY = os.path.join(os.path.dirname(__file__), "web")
 DATA_DIRECTORY = os.path.join(os.path.dirname(__file__), "data")
@@ -642,6 +642,11 @@ class WuhuoEmptyLatentVideo:
             h = self._align8(height_in)
             return w, h
         rw, rh = self._ratio_from_mode(size_mode)
+        # orientation 真正参与计算：竖屏强制比例竖向、横屏强制比例横向
+        if orientation == "竖屏" and rw > rh:
+            rw, rh = rh, rw
+        elif orientation == "横屏" and rh > rw:
+            rw, rh = rh, rw
         # 璁＄畻涓ょ鑱斿姩鍊欓€夛細
         w1 = self._align8(width_in)
         h1 = self._align8(round(w1 * rh / rw))
@@ -677,8 +682,8 @@ class WuhuoEmptyLatentVideo:
         try:
             import torch
             try:
-                from comfy.model_management import get_torch_device
-                device = get_torch_device()
+                # 空 latent 分配在 CPU，不占显存；下游节点按需搬运
+                device = torch.device("cpu")
             except Exception:
                 device = torch.device("cpu")
             # 杈撳嚭涓?缁磋棰憀atent锛歔B=1, C=16, T=frames, H//8, W//8]
@@ -803,6 +808,11 @@ class WuhuoEmptyLatentQwen:
             h = self._align8(height_in)
             return w, h
         rw, rh = self._ratio_from_mode(size_mode)
+        # orientation 真正参与计算：竖屏强制比例竖向、横屏强制比例横向
+        if orientation == "竖屏" and rw > rh:
+            rw, rh = rh, rw
+        elif orientation == "横屏" and rh > rw:
+            rw, rh = rh, rw
         w1 = self._align8(width_in)
         h1 = self._align8(round(w1 * rh / rw))
         h2 = self._align8(height_in)
@@ -820,8 +830,8 @@ class WuhuoEmptyLatentQwen:
         try:
             import torch
             try:
-                from comfy.model_management import get_torch_device
-                device = get_torch_device()
+                # 空 latent 分配在 CPU，不占显存；下游节点按需搬运
+                device = torch.device("cpu")
             except Exception:
                 device = torch.device("cpu")
             
@@ -1455,7 +1465,7 @@ class WuhuoWorkflowManager:
 
 # 娉ㄥ唽宸ヤ綔娴佺鐞嗚妭鐐?
 NODE_CLASS_MAPPINGS.update({"WuhuoWorkflowManager": WuhuoWorkflowManager})
-NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoWorkflowManager": "宸ヤ綔娴?"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"WuhuoWorkflowManager": "工作流+"})
 
 # ==========================================================================
 # 澶氬浘棰勮鑺傜偣锛堢嫭绔嬫ā鍧楋紝濡傞渶绂佺敤鍙垹闄や互涓嬩唬鐮佸潡锛?
@@ -1531,8 +1541,10 @@ class WuhuoShowText:
         return {"ui": {"text": text}, "result": (text,)}
 
 
-NODE_CLASS_MAPPINGS.update({"鏄剧ず鏂囨湰": WuhuoShowText})
-NODE_DISPLAY_NAME_MAPPINGS.update({"鏄剧ず鏂囨湰": "鏄剧ず鏂囨湰"})
+NODE_CLASS_MAPPINGS.update({"鏄剧ず鏂囨湰": WuhuoShowText})  # 旧工作流兼容键 (历史乱码名)
+NODE_CLASS_MAPPINGS.update({"显示文本": WuhuoShowText})
+NODE_DISPLAY_NAME_MAPPINGS.update({"鏄剧ず鏂囨湰": "显示文本"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"显示文本": "显示文本"})
 
 
 # ==========================================================================
