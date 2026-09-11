@@ -6,6 +6,12 @@
 
 ## 📜 更新日志
 
+### [v0.6.1] - 2026-09-12
+**精简：移除四个节点模块**
+*   **移除节点**：提示词随机生成器+ (WuhuoPromptRandomizer)、Z-Image 角色连续性套件（5 节点）、长文本分割转列表套件、LoRA 合并 (WuhuoLoraMerge / WuhuoLoraSimpleMerge)。
+*   随之移除配套的前端脚本 (`web/prompt_randomizer.js`、`web/lora_merge_tooltips.js`)、默认词库 (`prompt_randomizer_pools/`) 与第三方声明文件。
+*   依赖这些节点的历史工作流加载时会提示缺失节点，删除对应节点即可正常使用；其余功能不受影响。
+
 ### [v0.6.0] - 2026-09-06
 **重磅更新：提示词随机生成器+、Z-Image 角色连续性套件与 Qwen-VL 本地极速反推首发**
 

@@ -1477,20 +1477,6 @@ except Exception as e:
     print(f"[whtools] 图像对比模块加载失败: {e}")
 
 try:
-    from . import lora_merge
-    NODE_CLASS_MAPPINGS.update(lora_merge.NODE_CLASS_MAPPINGS)
-    NODE_DISPLAY_NAME_MAPPINGS.update(lora_merge.NODE_DISPLAY_NAME_MAPPINGS)
-except Exception as e:
-    print(f"[whtools] LoRA 合并模块加载失败: {e}")
-
-try:
-    from . import prompt_randomizer
-    NODE_CLASS_MAPPINGS.update(prompt_randomizer.NODE_CLASS_MAPPINGS)
-    NODE_DISPLAY_NAME_MAPPINGS.update(prompt_randomizer.NODE_DISPLAY_NAME_MAPPINGS)
-except Exception as e:
-    print(f"[whtools] PromptRandomizer 模块加载失败: {e}")
-
-try:
     from . import asset_library
     # 娉ㄥ唽鏋佺畝璧勪骇搴?API 璺敤
     asset_library.register_routes()
@@ -1631,14 +1617,6 @@ def patch_kjnodes_vae_loader():
 # Run the patch immediately during jdsc import
 patch_kjnodes_vae_loader()
 
-# Z-Image character continuity nodes
-try:
-    from . import zimage_continuity
-    NODE_CLASS_MAPPINGS.update(zimage_continuity.NODE_CLASS_MAPPINGS)
-    NODE_DISPLAY_NAME_MAPPINGS.update(zimage_continuity.NODE_DISPLAY_NAME_MAPPINGS)
-except Exception as e:
-    print(f"[whtools] Z-Image 连续性模块加载失败: {e}")
-
 # Qwen-VL 本地极速 API 节点 (5070Ti)
 try:
     import importlib
@@ -1648,13 +1626,5 @@ try:
     NODE_DISPLAY_NAME_MAPPINGS.update(qwen_vl_local.NODE_DISPLAY_NAME_MAPPINGS)
 except Exception as e:
     print(f"[whtools] Qwen-VL 本地极速模块加载失败: {e}")
-
-# 长文本分割转列表 (LongTextToList - ported from ComfyUI_Lam)
-try:
-    from . import long_text_to_list
-    NODE_CLASS_MAPPINGS.update(long_text_to_list.NODE_CLASS_MAPPINGS)
-    NODE_DISPLAY_NAME_MAPPINGS.update(long_text_to_list.NODE_DISPLAY_NAME_MAPPINGS)
-except Exception as e:
-    print(f"[whtools] 长文本转列表模块加载失败: {e}")
 
 
